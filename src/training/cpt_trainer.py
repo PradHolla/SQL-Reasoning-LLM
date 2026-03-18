@@ -1,17 +1,18 @@
 import os
 import torch
-from datasets import load_dataset
-from trl import SFTTrainer
-from transformers import TrainingArguments
-
-# Import the loader you built earlier
 from model_loader import load_base_model
+
+from datasets import load_dataset
+from trl import SFTTrainer, SFTConfig
+from transformers import TrainingArguments
 
 def train_cpt():
     print("Initializing CPT Training Run...")
     
     # Load the model and tokenizer with LoRA adapters
     model, tokenizer = load_base_model("Qwen/Qwen2.5-0.5B", max_seq_length=2048)
+    tokenizer.eos_token = "<|endoftext|>"
+    tokenizer.pad_token = tokenizer.eos_token
     
     # Load dataset
     dataset = load_dataset(
@@ -21,7 +22,7 @@ def train_cpt():
     )
     
     # Training Args
-    training_args = TrainingArguments(
+    training_args = SFTConfig(
         output_dir = "outputs/cpt_checkpoints",
         per_device_train_batch_size = 4,
         gradient_accumulation_steps = 4, # Simulates a batch size of 16 to save VRAM
@@ -36,17 +37,18 @@ def train_cpt():
         lr_scheduler_type = "cosine",
         seed = 3407,
         report_to = "wandb", # Automatically logs your loss curves to Weights & Biases
+        dataset_text_field = "text",
+        max_length = 2048,
+        dataset_num_proc = 4,
+        packing = True, # Enables packing multiple samples into one sequence
+        # eos_token = tokenizer.eos_token,
     )
     
     # 4. Initialize the Trainer
     trainer = SFTTrainer(
         model = model,
-        tokenizer = tokenizer,
+        processing_class = tokenizer,
         train_dataset = dataset,
-        dataset_text_field = "text",
-        max_seq_length = 2048,
-        dataset_num_proc = 4,
-        packing = True, # Packs multiple short SQL schemas into one 2048-token chunk
         args = training_args,
     )
     
@@ -61,6 +63,4 @@ def train_cpt():
     print(f"Training complete! Adapters saved to {final_save_path}")
 
 if __name__ == "__main__":
-    # Ensure Weights & Biases has your API key loaded in your environment variables
-    # export WANDB_API_KEY="your_key_here"
     train_cpt()
