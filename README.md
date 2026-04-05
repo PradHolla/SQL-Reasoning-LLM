@@ -7,13 +7,13 @@ Unlike standard instruct-tuning, this project builds a **Reasoning Engine** from
 **Base Model:** `Qwen/Qwen2.5-0.5B`  
 **Frameworks:** PyTorch, Hugging Face `trl`, Unsloth (for LoRA/4-bit optimization)
 
-## 🏗️ Pipeline Architecture
+## Pipeline Architecture
 
 1. **Phase 1: Continual Pre-Training (CPT)** - Ingests raw database schemas and SQL queries to teach the model the base domain vocabulary and syntax.
 2. **Phase 2: Supervised Fine-Tuning (SFT)** - Uses ChatML formatting to enforce a strict XML-style behavioral contract: `<think> [logic] </think> <answer> [sql] </answer>`.
 3. **Phase 3: Reinforcement Learning (GRPO)** - The model generates multiple thought paths per prompt. Reward functions score the output based on strict formatting (+1.0) and SQL ground-truth correctness (+2.0). The model updates its policy to favor high-scoring logical reasoning.
 
-## ✨ Core Features
+## Core Features
 - **Memory-Efficient Training:** Utilizes 4-bit quantization and LoRA adapters via Unsloth, allowing the entire pipeline to run on a single 24GB consumer-grade GPU.
 - **Verifiable Rewards:** No separate critic model required. The GRPO loop uses deterministic regex and string-matching to calculate advantage.
 - **Modern Python Tooling:** Environment fully managed by Astral's `uv` package manager.
