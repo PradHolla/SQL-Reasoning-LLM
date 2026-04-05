@@ -1,6 +1,6 @@
-# SQL-Reasoning-LLM
+# SQL Reasoning LLM
 
-An end-to-end machine learning pipeline that trains a compact, 0.5B parameter language model to autonomously convert natural language questions into highly accurate SQL queries. 
+An end to end machine learning pipeline that trains a compact, 0.5B parameter language model to autonomously convert natural language questions into highly accurate SQL queries. 
 
 Unlike standard instruct-tuning, this project builds a **Reasoning Engine** from scratch using a 3-stage pipeline: Continual Pre-Training (CPT), Supervised Fine-Tuning (SFT), and Reinforcement Learning via Group Relative Policy Optimization (GRPO). The model learns to "think" before it speaks, grading its own logic using verifiable reward functions.
 
@@ -10,12 +10,12 @@ Unlike standard instruct-tuning, this project builds a **Reasoning Engine** from
 ## Pipeline Architecture
 
 1. **Phase 1: Continual Pre-Training (CPT)** - Ingests raw database schemas and SQL queries to teach the model the base domain vocabulary and syntax.
-2. **Phase 2: Supervised Fine-Tuning (SFT)** - Uses ChatML formatting to enforce a strict XML-style behavioral contract: `<think> [logic] </think> <answer> [sql] </answer>`.
-3. **Phase 3: Reinforcement Learning (GRPO)** - The model generates multiple thought paths per prompt. Reward functions score the output based on strict formatting (+1.0) and SQL ground-truth correctness (+2.0). The model updates its policy to favor high-scoring logical reasoning.
+2. **Phase 2: Supervised Fine-Tuning (SFT)** - Uses ChatML formatting to enforce a strict XML style behavioral contract: `<think> [logic] </think> <answer> [sql] </answer>`.
+3. **Phase 3: Reinforcement Learning (GRPO)** - The model generates multiple thought paths per prompt. Reward functions score the output based on strict formatting (+1.0) and SQL ground truth correctness (+2.0). The model updates its policy to favor high scoring logical reasoning.
 
 ## Core Features
-- **Memory-Efficient Training:** Utilizes 4-bit quantization and LoRA adapters via Unsloth, allowing the entire pipeline to run on a single 24GB consumer-grade GPU.
-- **Verifiable Rewards:** No separate critic model required. The GRPO loop uses deterministic regex and string-matching to calculate advantage.
+- **Memory Efficient Training:** Utilizes 4 bit quantization and LoRA adapters via Unsloth, allowing the entire pipeline to run on a single 24GB consumer grade GPU.
+- **Verifiable Rewards:** No separate critic model required. The GRPO loop uses deterministic regex and string matching to calculate advantage.
 - **Modern Python Tooling:** Environment fully managed by Astral's `uv` package manager.
 
 ## Project Structure
@@ -63,7 +63,7 @@ If `huggingface-cli` is not found, use:
 uvx --from huggingface_hub hf auth login
 ```
 
-Or non-interactive:
+Or non interactive:
 
 ```bash
 export HF_TOKEN="your_token_here"
