@@ -11,5 +11,34 @@ wheels/
 
 .DS_Store
 
+# Training caches / experiment tracking
 unsloth_compiled_cache/
 wandb/
+
+# ---------------------------------------------------------------------------
+# Large artifacts: kept locally, never committed.
+# All of these are reproducible from source — see README for how to rebuild.
+# ---------------------------------------------------------------------------
+
+# Trained LoRA adapters and merged models (rebuild: src/training/*)
+models/
+
+# Trainer checkpoints, optimizer states, logs (rebuild: src/training/*)
+outputs/
+
+# Datasets: HF downloads, processed JSONL, benchmark SQLite DBs
+# (rebuild: src/data_prep/*)
+data/
+
+# Benchmark databases and scratch SQLite files
+*.sqlite
+*.sqlite3
+*.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Working notes / roadmap — kept local, not published
+BLUEPRINT.md
