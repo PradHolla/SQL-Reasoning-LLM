@@ -20,14 +20,14 @@ wandb/
 # All of these are reproducible from source — see README for how to rebuild.
 # ---------------------------------------------------------------------------
 
-# Trained LoRA adapters and merged models (rebuild: src/training/*)
+# Trained LoRA adapters and merged models (rebuild: sqlrl.training.*)
 models/
 
-# Trainer checkpoints, optimizer states, logs (rebuild: src/training/*)
+# Trainer checkpoints, optimizer states, logs (rebuild: sqlrl.training.*)
 outputs/
 
 # Datasets: HF downloads, processed JSONL, benchmark SQLite DBs
-# (rebuild: src/data_prep/*)
+# (rebuild: sqlrl.data_prep.*)
 data/
 
 # Benchmark databases and scratch SQLite files

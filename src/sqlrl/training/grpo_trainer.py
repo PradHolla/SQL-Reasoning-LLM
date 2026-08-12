@@ -65,10 +65,9 @@ def train_grpo():
         load_in_4bit = True,
     )
     
-    tokenizer.eos_token = "<|endoftext|>"
-    tokenizer.pad_token = tokenizer.eos_token
-    
-    # --- ADD THIS BLOCK ---
+    # Deleted here: manual eos_token/pad_token assignment, overwritten by
+    # get_chat_template below. See sqlrl.tokenizer for what that call does to
+    # the vocab; Phase 2 replaces this block.
     tokenizer = get_chat_template(
         tokenizer,
         chat_template="chatml",

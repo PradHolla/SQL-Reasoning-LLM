@@ -28,16 +28,23 @@ data/
 models/
     All saved models are here
 src/
-	data_prep/
-		format_cpt_data.py
-		format_sft_data.py
-	training/
-		model_loader.py
-		cpt_trainer.py
-		sft_trainer.py
-		grpo_trainer.py
-	evaluation/
-		inference.py
+	sqlrl/
+		tokenizer.py
+		data_prep/
+			format_cpt_data.py
+			format_sft_data.py
+		training/
+			model_loader.py
+			cpt_trainer.py
+			sft_trainer.py
+			grpo_trainer.py
+			merge.py
+		serving/
+			inference.py
+			api.py
+			agent.py
+infra/
+	Launch/stop/status scripts for the EC2 GPU boxes
 ```
 
 
@@ -75,8 +82,8 @@ uvx --from huggingface_hub hf auth login --token "$HF_TOKEN"
 Build both datasets from `b-mc2/sql-create-context`:
 
 ```bash
-uv run python src/data_prep/format_cpt_data.py
-uv run python src/data_prep/format_sft_data.py
+uv run python -m sqlrl.data_prep.format_cpt_data
+uv run python -m sqlrl.data_prep.format_sft_data
 ```
 
 Outputs:
@@ -91,7 +98,7 @@ Run stages in order.
 ### 1) CPT
 
 ```bash
-uv run python src/training/cpt_trainer.py
+uv run python -m sqlrl.training.cpt_trainer
 ```
 
 Saves adapters to:
@@ -101,7 +108,7 @@ Saves adapters to:
 ### 2) SFT
 
 ```bash
-uv run python src/training/sft_trainer.py
+uv run python -m sqlrl.training.sft_trainer
 ```
 
 Saves adapters to:
@@ -111,7 +118,7 @@ Saves adapters to:
 ### 3) GRPO
 
 ```bash
-uv run python src/training/grpo_trainer.py
+uv run python -m sqlrl.training.grpo_trainer
 ```
 
 Saves final model to:
@@ -121,7 +128,7 @@ Saves final model to:
 ## Inference
 
 ```bash
-uv run python src/evaluation/inference.py
+uv run python -m sqlrl.serving.inference
 ```
 
 The script loads the final model and generates SQL for a sample schema/question pair.
@@ -152,14 +159,24 @@ uvx --from huggingface_hub hf auth login
 
 ### EOS token mismatch with Qwen tokenizer
 
-If you see an EOS token error in TRL/SFT, ensure tokenizer settings are explicitly set before trainer init:
+Build tokenizers through `sqlrl.tokenizer.build_tokenizer`, always passing the
+directory of the checkpoint you are about to run:
 
 ```python
-tokenizer.eos_token = "<|endoftext|>"
-tokenizer.pad_token = tokenizer.eos_token
+from sqlrl.tokenizer import assert_stops_on, build_tokenizer
+
+tokenizer = build_tokenizer("models/qwen-0.5b-sft-lora", chat=True)
+assert_stops_on(tokenizer, "models/qwen-0.5b-sft-lora")
 ```
 
-Use `eos_token` (string) in `SFTConfig` if needed, not `eos_token_id`.
+Setting `eos_token`/`pad_token` by hand before applying a chat template does
+nothing — the template call overwrites both.
+
+It matters more than it looks. Unsloth's `get_chat_template` rewrote the vocab
+during training, so the SFT and GRPO checkpoints put `<|im_end|>` at id 151643
+where stock Qwen2.5 puts `<|endoftext|>`. Load those adapters with a stock
+tokenizer and generation never stops. `assert_stops_on` turns that into an
+immediate error instead of a bad benchmark score.
 
 ### W&B logging errors
 

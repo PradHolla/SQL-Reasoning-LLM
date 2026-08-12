@@ -1,6 +1,6 @@
 import os
 import torch
-from model_loader import load_base_model
+from sqlrl.training.model_loader import load_base_model
 
 from datasets import load_dataset
 from trl import SFTTrainer, SFTConfig

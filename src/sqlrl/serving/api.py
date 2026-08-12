@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from openai import AsyncOpenAI
 
 app = FastAPI(title="SQL Reasoning Gateway")
@@ -13,7 +13,9 @@ client = AsyncOpenAI(
 )
 
 class SQLRequest(BaseModel):
-    schema: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    db_schema: str = Field(alias="schema")
     question: str
 
 @app.post("/generate-stream")
@@ -21,7 +23,7 @@ async def generate_sql_stream(req: SQLRequest):
     # 1. Enforce the exact system prompt and formatting from training
     messages = [
         {"role": "system", "content": "You are a database expert. You must think step-by-step inside <think></think> tags, and output ONLY the final SQL query inside <answer></answer> tags."},
-        {"role": "user", "content": f"Schema: {req.schema}\nQuestion: {req.question}"}
+        {"role": "user", "content": f"Schema: {req.db_schema}\nQuestion: {req.question}"}
     ]
 
     # 2. Create an async generator to yield tokens as vLLM produces them

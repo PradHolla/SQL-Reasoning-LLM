@@ -1,27 +1,27 @@
 import torch
 from unsloth import FastLanguageModel
-from unsloth.chat_templates import get_chat_template
+
+from sqlrl.tokenizer import assert_stops_on, build_tokenizer
 
 def generate_sql():
     # Load your final reasoning model
     model_path = "models/qwen-0.5b-reasoning-final"
     print(f"Loading reasoning engine from {model_path}...")
     
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    model, _ = FastLanguageModel.from_pretrained(
         model_name = model_path,
         max_seq_length = 2048,
         dtype = None,
         load_in_4bit = True,
     )
 
-    tokenizer.eos_token = "<|endoftext|>"
-    tokenizer.pad_token = tokenizer.eos_token
+    # Built from the checkpoint, never from the base model name: v0's saved
+    # vocab has <|im_end|> at a different id than stock Qwen2.5. See
+    # sqlrl.tokenizer. The assert turns a silent non-terminating generation
+    # into an immediate, readable failure.
+    tokenizer = build_tokenizer(model_path, chat=True)
+    assert_stops_on(tokenizer, model_path)
 
-    tokenizer = get_chat_template(
-        tokenizer,
-        chat_template="chatml",
-    )
-    
     # Unsloth optimization for 2x faster inference
     FastLanguageModel.for_inference(model)
 
@@ -52,6 +52,7 @@ def generate_sql():
         **inputs,
         max_new_tokens = 512, # Gives it room to think
         use_cache = True,     # Standard inference optimization
+        do_sample = True,
         temperature = 0.6,    # A little bit of randomness for reasoning
     )
 

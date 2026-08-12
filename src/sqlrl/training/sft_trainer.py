@@ -20,11 +20,9 @@ def train_sft():
         load_in_4bit = True,
     )
     
-    # Fix the EOS token issue natively
-    tokenizer.eos_token = "<|endoftext|>"
-    tokenizer.pad_token = tokenizer.eos_token
-    
-    # --- ADD THIS BLOCK ---
+    # Deleted here: manual eos_token/pad_token assignment. get_chat_template
+    # below overwrites both, so it never did anything. Phase 2 replaces this
+    # block with sqlrl.tokenizer.build_tokenizer.
     print("Injecting ChatML template...")
     tokenizer = get_chat_template(
         tokenizer,
