@@ -16,7 +16,7 @@ continues for a few minutes after that; the box is ready when
 `/opt/sql-llm/.bootstrap-complete` exists.
 
 ```bash
-ssh -i ~/.ssh/sql-llm-ue2.pem ubuntu@<ip> 'tail -f /var/log/user-data.log'
+ssh -i ~/.ssh/sql-llm-ue1.pem ubuntu@<ip> 'tail -f /var/log/user-data.log'
 ```
 
 ## What the guardrails do
@@ -39,20 +39,32 @@ trainer itself; it is the last line of defence.
 
 ## Provisioned resources
 
-Created once, in **us-east-2** (cheapest `g5` spot at setup time — roughly 30%
-under us-east-1).
+Everything lives in **us-east-1**.
 
 | Resource | Name / ID |
 |---|---|
-| Key pair | `sql-llm-ue2` (ed25519) → `~/.ssh/sql-llm-ue2.pem` |
-| Security group | `sg-0c9d9c853ea1d03b7` — SSH from one IP only |
+| Key pair | `sql-llm` (rsa) → `~/.ssh/sql-llm-ue1.pem` |
+| Security group | `sg-02ff9b697e95494e6` — SSH from one IP only |
 | IAM role | `sql-llm-ec2-role` (scoped S3 + SSM read + SSM Session Manager) |
-| Instance profile | `sql-llm-ec2-profile` |
-| S3 bucket | `sql-reasoning-llm-381492233412-us-east-2` |
-| Budget | `sql-reasoning-llm-ec2`, $100/month |
-| VPC | `vpc-050a6be2968570ada` (default) |
+| Instance profile | `sql-llm-ec2-profile` (IAM is global) |
+| S3 bucket | `sql-reasoning-llm-381492233412-us-east-1` |
+| Budget | `sql-reasoning-llm-ec2`, $100/month (account-wide) |
+| VPC | `vpc-045cc999e6dbf6bf2` (default) |
 
 All of it is centralized in `config.sh`.
+
+### Why not us-east-2
+
+The project was originally provisioned in us-east-2, because `g5` spot ran
+about 30% cheaper there. That turned out not to matter: **us-east-2 has zero
+G/VT quota of either kind**, on-demand included, so it cannot launch a GPU box
+at all. us-east-1 has 8 vCPU of on-demand G/VT approved.
+
+Running compute in us-east-1 against a us-east-2 bucket and secrets was
+considered and rejected. It would save roughly $0.13/hr on spot pricing we have
+no quota for, in exchange for a permanent "which region is that in?" tax on
+every future debugging session. Quota beats list price, and one region beats
+two.
 
 ## Secrets
 
@@ -62,11 +74,12 @@ git. The instance role grants read access to `/sql-llm/*`, and `user-data.sh`
 materializes them into `.env` at boot.
 
 ```bash
-# already stored
+# stored, in us-east-1
 /sql-llm/HF_TOKEN
+/sql-llm/WANDB_API_KEY
 
-# add W&B before the first training run
-aws ssm put-parameter --region us-east-2 --name /sql-llm/WANDB_API_KEY \
+# to rotate one
+aws ssm put-parameter --region us-east-1 --name /sql-llm/WANDB_API_KEY \
     --value "<key>" --type SecureString --overwrite
 ```
 
@@ -76,8 +89,8 @@ aws ssm put-parameter --region us-east-2 --name /sql-llm/WANDB_API_KEY \
 network changes, SSH hangs. Fix:
 
 ```bash
-aws ec2 authorize-security-group-ingress --region us-east-2 \
-    --group-id sg-0c9d9c853ea1d03b7 --protocol tcp --port 22 \
+aws ec2 authorize-security-group-ingress --region us-east-1 \
+    --group-id sg-02ff9b697e95494e6 --protocol tcp --port 22 \
     --cidr "$(curl -s https://checkip.amazonaws.com)/32"
 ```
 
