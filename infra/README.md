@@ -8,6 +8,9 @@ One-command GPU boxes for training and evaluation, with cost guardrails.
 ./infra/launch.sh              # new on-demand g5.xlarge, ~$1.006/hr
 ./infra/launch.sh --spot       # spot, ~$0.48/hr (needs the spot quota)
 ./infra/start.sh               # restart a stopped box (keeps repo, venv, HF cache)
+./infra/ssh.sh                 # shell on the running box (finds the IP for you)
+./infra/ssh.sh --log           # follow the current eval run
+./infra/ssh.sh --gpu           # live nvidia-smi
 ./infra/status.sh              # what's running, spend, quota, spot prices
 ./infra/stop.sh                # stop everything (keeps the disk)
 ./infra/stop.sh --terminate    # destroy it, disk included
