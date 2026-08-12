@@ -44,9 +44,14 @@ echo "$COUNT" > "$STATE"
 
 # Is anything still holding the GPU? A process between batches, or in a long
 # CPU-only phase of a job, reads 0% but has memory allocated.
-GPU_PROCS=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -c . || echo 0)
+# `grep -c` prints the count and exits 1 when it is zero, so `|| echo 0` would
+# append a second line and make the comparisons below fail with "integer
+# expression expected" — silently falling back to the aggressive limit.
+GPU_PROCS=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -c . || true)
 # Is a human still connected?
-SESSIONS=$(who 2>/dev/null | grep -c . || echo 0)
+SESSIONS=$(who 2>/dev/null | grep -c . || true)
+GPU_PROCS=${GPU_PROCS:-0}
+SESSIONS=${SESSIONS:-0}
 
 if [ "$GPU_PROCS" -gt 0 ] || [ "$SESSIONS" -gt 0 ]; then
     LIMIT="$BUSY_MINUTES"
