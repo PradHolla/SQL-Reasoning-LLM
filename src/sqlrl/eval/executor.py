@@ -53,7 +53,7 @@ from typing import Any, Iterator, Literal, NamedTuple
 import sqlglot
 from sqlglot import expressions as exp
 
-__all__ = ["ExecResult", "Status", "compare", "requires_order", "run"]
+__all__ = ["ExecResult", "Status", "compare", "read_schema", "requires_order", "run"]
 
 Status = Literal["ok", "error", "timeout", "too_many_rows"]
 
@@ -83,6 +83,10 @@ class ExecResult(NamedTuple):
     ``error``           SQLite rejected it -- syntax, missing table, missing column
     ``timeout``         exceeded the time budget
     ``too_many_rows``   more rows than ``max_rows``; ``rows`` is truncated
+
+    The ``max_rows`` default is high because real gold queries can be large --
+    one Spider gold query returns 20,662 rows. The cap exists to stop a
+    hallucinated cross join from exhausting memory, not to bound honest results.
     """
 
     status: Status
@@ -98,7 +102,7 @@ def run(
     sql: str,
     db_path: str | Path,
     timeout: float = 5.0,
-    max_rows: int = 10_000,
+    max_rows: int = 100_000,
 ) -> ExecResult:
     """Execute ``sql`` against the SQLite file at ``db_path``.
 
@@ -152,6 +156,41 @@ def run(
         if timed_out:
             return ExecResult("timeout", [], f"exceeded {timeout}s")
         return ExecResult("error", [], f"{type(exc).__name__}: {exc}")
+    finally:
+        conn.close()
+
+
+def read_schema(db_path: str | Path) -> dict[str, dict[str, str]]:
+    """``{table: {column: type}}`` read straight from the database file.
+
+    Used to resolve table aliases when comparing query structure, and later to
+    build prompts. Reading the live database rather than a benchmark's metadata
+    file means the schema we show the model is the schema its SQL will run
+    against -- there is no second source of truth to drift.
+    """
+    path = Path(db_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"No SQLite database at {path!r}")
+
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.text_factory = lambda b: b.decode("utf-8", "replace")
+    try:
+        tables = [
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        ]
+        return {
+            table: {
+                row[1]: row[2]
+                # Identifier, not a value, so it cannot be parameterised. The
+                # names come from sqlite_master, not from model output.
+                for row in conn.execute(f'PRAGMA table_info("{table}")')
+            }
+            for table in tables
+        }
     finally:
         conn.close()
 
