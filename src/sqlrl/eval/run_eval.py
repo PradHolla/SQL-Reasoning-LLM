@@ -1,0 +1,312 @@
+"""Run a model over a benchmark and print the model x metric table.
+
+    uv run eval --model sft
+    uv run eval --model all --split test
+    uv run eval --model all --split test --score-only    # no GPU needed
+
+**Generation and scoring are separate on purpose.** Predictions are written to
+``results/<split>/<model>.json`` and scoring reads them back. Every metric in
+this project is young enough to still have bugs in it, and re-scoring a fixed
+metric should cost seconds of CPU, not another pass over 2,147 questions on a
+GPU. ``--score-only`` re-derives every number from saved predictions.
+
+Each run also records the git commit, device and decoding settings alongside
+the predictions, because a number whose provenance you cannot reconstruct is
+not a measurement.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sqlrl.eval.executor import read_schema
+from sqlrl.eval.metrics import Report, aggregate, format_report, score_example
+from sqlrl.eval.prompts import chat_prompt, cpt_prompt, extract_sql, render_schema
+from sqlrl.eval.spider import SPLITS, Example, load_split
+
+__all__ = ["MODELS", "ModelSpec", "main"]
+
+DEFAULT_RESULTS = Path("results")
+BASE_MODEL = "Qwen/Qwen2.5-0.5B"
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """How to load one baseline.
+
+    ``chat`` drives both the tokenizer mode and the prompt shape, because in v0
+    those two things were decided together: SFT and GRPO trained on ChatML, CPT
+    trained on raw text. They cannot be mixed.
+    """
+
+    name: str
+    path: str
+    base: str | None = None
+    chat: bool = True
+
+
+#: The five baselines. Greedy, pass@1, identical treatment across all of them --
+#: the comparison is only fair if nothing but the weights changes.
+MODELS: dict[str, ModelSpec] = {
+    "base": ModelSpec("base", BASE_MODEL, chat=True),
+    "cpt": ModelSpec("cpt", "models/qwen-0.5b-cpt-lora", base=BASE_MODEL, chat=False),
+    "sft": ModelSpec("sft", "models/qwen-0.5b-sft-lora", base=BASE_MODEL, chat=True),
+    "grpo": ModelSpec(
+        "grpo", "models/qwen-0.5b-reasoning-final", base=BASE_MODEL, chat=True
+    ),
+    "coder-7b": ModelSpec("coder-7b", "Qwen/Qwen2.5-Coder-7B-Instruct", chat=True),
+}
+
+
+@dataclass
+class Prediction:
+    index: int
+    db_id: str
+    question: str
+    gold_sql: str
+    raw: str
+    pred_sql: str
+
+
+@dataclass
+class RunRecord:
+    """Predictions plus everything needed to reproduce them."""
+
+    model: str
+    split: str
+    n: int
+    device: str
+    dtype: str
+    max_new_tokens: int
+    decoding: str
+    seed: int
+    git_commit: str
+    generated_at: str
+    generation_seconds: float
+    predictions: list[Prediction] = field(default_factory=list)
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:  # noqa: BLE001 -- provenance is best-effort, not fatal
+        return "unknown"
+
+
+# --------------------------------------------------------------------------
+# generation
+# --------------------------------------------------------------------------
+
+
+def build_prompts(examples: list[Example], chat: bool) -> list:
+    """One prompt per example, in the training shape this model expects."""
+    schemas: dict[str, str] = {}
+    prompts = []
+    for example in examples:
+        if example.db_id not in schemas:
+            schemas[example.db_id] = render_schema(read_schema(example.db_path))
+        text = schemas[example.db_id]
+        prompts.append(
+            chat_prompt(text, example.question) if chat else cpt_prompt(text, example.question)
+        )
+    return prompts
+
+
+def generate(
+    spec: ModelSpec,
+    examples: list[Example],
+    *,
+    batch_size: int,
+    max_new_tokens: int,
+    device: str | None,
+    seed: int,
+) -> RunRecord:
+    # Imported here so --score-only never pays for torch.
+    from sqlrl.eval.backends.hf import HFBackend
+
+    backend = HFBackend(
+        spec.path,
+        name=spec.name,
+        base_model=spec.base,
+        chat=spec.chat,
+        device=device,
+        batch_size=batch_size,
+        seed=seed,
+    )
+    print(f"  loaded on {backend.device} ({backend.dtype}), "
+          f"stops on {backend.stop_ids}")
+
+    prompts = build_prompts(examples, spec.chat)
+    started = time.perf_counter()
+    outputs = backend.generate(prompts, max_new_tokens=max_new_tokens)
+    elapsed = time.perf_counter() - started
+    print(f"  generated {len(outputs)} in {elapsed / 60:.1f} min "
+          f"({elapsed / max(len(outputs), 1):.2f}s each)")
+
+    return RunRecord(
+        model=spec.name,
+        split="",  # filled by the caller, which knows the split
+        n=len(examples),
+        device=backend.device,
+        dtype=str(backend.dtype),
+        max_new_tokens=max_new_tokens,
+        decoding="greedy",
+        seed=seed,
+        git_commit=_git_commit(),
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        generation_seconds=round(elapsed, 1),
+        predictions=[
+            Prediction(
+                index=index,
+                db_id=example.db_id,
+                question=example.question,
+                gold_sql=example.gold_sql,
+                raw=raw,
+                pred_sql=extract_sql(raw),
+            )
+            for index, (example, raw) in enumerate(zip(examples, outputs))
+        ],
+    )
+
+
+def save(record: RunRecord, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(record), indent=1))
+    print(f"  wrote {path}")
+
+
+def load(path: Path) -> RunRecord:
+    raw = json.loads(path.read_text())
+    predictions = [Prediction(**p) for p in raw.pop("predictions")]
+    return RunRecord(**raw, predictions=predictions)
+
+
+# --------------------------------------------------------------------------
+# scoring
+# --------------------------------------------------------------------------
+
+
+def score(record: RunRecord, examples: list[Example], timeout: float) -> tuple[Report, Report]:
+    """Score a run, returning (all examples, uncontaminated examples only).
+
+    Both are reported because on Spider dev they differ enormously -- 54% of
+    that split is in the v0 training data. The gap is the memorisation.
+    """
+    scores, clean_scores = [], []
+    for prediction in record.predictions:
+        example = examples[prediction.index]
+        assert example.question == prediction.question, (
+            f"prediction {prediction.index} does not line up with the benchmark; "
+            f"the saved run is stale, regenerate it"
+        )
+        result = score_example(
+            prediction.pred_sql, prediction.gold_sql, example.db_path, timeout=timeout
+        )
+        scores.append(result)
+        if not example.contaminated:
+            clean_scores.append(result)
+    return aggregate(scores), aggregate(clean_scores)
+
+
+def comparison_table(rows: list[tuple[str, Report, Report]]) -> str:
+    """The model x metric table. The deliverable of Phase 1."""
+    header = (
+        f"{'model':<10} {'EX':>7} {'EX/clean':>9} {'exec':>7} {'parse':>7} "
+        f"{'struct':>7} {'n':>6}"
+    )
+    lines = [header, "-" * len(header)]
+    for name, full, clean in rows:
+        lines.append(
+            f"{name:<10} {full.execution_accuracy:>7.1%} {clean.execution_accuracy:>9.1%} "
+            f"{full.execution_rate:>7.1%} {full.parse_rate:>7.1%} "
+            f"{full.structural_match:>7.1%} {full.n:>6}"
+        )
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Evaluate models on Spider.")
+    parser.add_argument("--model", default="all",
+                        help=f"one of {', '.join(MODELS)}, or 'all'")
+    parser.add_argument("--split", choices=SPLITS, default="test")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="evaluate only the first N examples (smoke tests)")
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--max-new-tokens", type=int, default=384)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--seed", type=int, default=3407)
+    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
+    parser.add_argument("--score-only", action="store_true",
+                        help="re-score saved predictions without loading a model")
+    args = parser.parse_args()
+
+    names = list(MODELS) if args.model == "all" else [args.model]
+    unknown = [n for n in names if n not in MODELS]
+    if unknown:
+        parser.error(f"unknown model(s): {unknown}. Choose from {list(MODELS)}")
+
+    examples = load_split(args.split)
+    if args.limit:
+        examples = examples[: args.limit]
+    contaminated = sum(example.contaminated for example in examples)
+    print(f"{args.split}: {len(examples)} examples, {contaminated} contaminated "
+          f"({contaminated / len(examples):.1%})\n")
+
+    out_dir = args.results / args.split
+    rows: list[tuple[str, Report, Report]] = []
+
+    for name in names:
+        spec = MODELS[name]
+        path = out_dir / f"{name}.json"
+        print(f"=== {name} ===")
+
+        if args.score_only:
+            if not path.is_file():
+                print(f"  no saved predictions at {path}, skipping\n")
+                continue
+            record = load(path)
+        else:
+            record = generate(
+                spec, examples,
+                batch_size=args.batch_size,
+                max_new_tokens=args.max_new_tokens,
+                device=args.device,
+                seed=args.seed,
+            )
+            record.split = args.split
+            save(record, path)
+
+        full, clean = score(record, examples, args.timeout)
+        print()
+        print(format_report(full, title=f"{name} — {args.split} (all {full.n})"))
+        print()
+        print(format_report(clean, title=f"{name} — {args.split} (uncontaminated only)"))
+        print()
+        rows.append((name, full, clean))
+
+    if rows:
+        print("=" * 60)
+        print(f"Spider {args.split} — greedy, pass@1")
+        print("=" * 60)
+        print(comparison_table(rows))
+        summary = out_dir / "summary.txt"
+        summary.write_text(comparison_table(rows) + "\n")
+        print(f"\nwrote {summary}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

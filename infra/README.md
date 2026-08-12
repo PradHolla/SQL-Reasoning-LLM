@@ -5,11 +5,18 @@ One-command GPU boxes for training and evaluation, with cost guardrails.
 ## Daily use
 
 ```bash
-./infra/launch.sh              # on-demand g5.xlarge, ~$1.006/hr
-./infra/launch.sh --spot       # spot, ~$0.36/hr (needs the spot quota)
+./infra/launch.sh              # new on-demand g5.xlarge, ~$1.006/hr
+./infra/launch.sh --spot       # spot, ~$0.48/hr (needs the spot quota)
+./infra/start.sh               # restart a stopped box (keeps repo, venv, HF cache)
 ./infra/status.sh              # what's running, spend, quota, spot prices
 ./infra/stop.sh                # stop everything (keeps the disk)
+./infra/stop.sh --terminate    # destroy it, disk included
 ```
+
+After an idle shutdown use `start.sh`, not `launch.sh`: a stopped instance keeps
+its root volume, so the repo, the uv environment and the ~2 GB HuggingFace cache
+survive. Relaunching downloads all of it again. The public IP changes on every
+start, so `start.sh` prints the new one and refreshes the SSH rule.
 
 `launch.sh` prints the SSH command as soon as the instance is up. Bootstrap
 continues for a few minutes after that; the box is ready when

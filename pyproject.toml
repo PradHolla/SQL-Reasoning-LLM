@@ -18,6 +18,9 @@ dependencies = [
     "wandb>=0.25.1",
 ]
 
+[project.scripts]
+eval = "sqlrl.eval.run_eval:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
