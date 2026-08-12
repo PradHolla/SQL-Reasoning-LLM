@@ -12,6 +12,15 @@ IDLE_MINUTES="${IDLE_SHUTDOWN_MINUTES:-30}"
 STATE=/var/run/gpu-idle-count
 HOLD=/opt/sql-llm/.no-autoshutdown
 
+# GPU utilization alone is not "is this box in use". An evaluation run spends
+# real time loading weights, building prompts, executing SQL and scoring, all at
+# 0% GPU — and this script shut down a live run twice before that was fixed.
+#
+# So idleness is graded. A process still holding GPU memory, or a human still
+# logged in, means work is probably in flight: those get a much longer rope
+# rather than immunity, because "forgot to log out" must not cost $170/week.
+BUSY_MINUTES="${IDLE_BUSY_MINUTES:-180}"
+
 # Manual hold — reset the counter and do nothing.
 if [ -f "$HOLD" ]; then
     echo 0 > "$STATE"
@@ -33,9 +42,23 @@ else
 fi
 echo "$COUNT" > "$STATE"
 
-if [ "$COUNT" -ge "$IDLE_MINUTES" ]; then
-    logger -t idle-shutdown "GPU idle ${IDLE_MINUTES}m (util ${UTIL}%) — shutting down"
-    wall "GPU has been idle ${IDLE_MINUTES} minutes. Shutting down. Prevent with: touch ${HOLD}" 2>/dev/null
+# Is anything still holding the GPU? A process between batches, or in a long
+# CPU-only phase of a job, reads 0% but has memory allocated.
+GPU_PROCS=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -c . || echo 0)
+# Is a human still connected?
+SESSIONS=$(who 2>/dev/null | grep -c . || echo 0)
+
+if [ "$GPU_PROCS" -gt 0 ] || [ "$SESSIONS" -gt 0 ]; then
+    LIMIT="$BUSY_MINUTES"
+    REASON="in use (gpu procs=${GPU_PROCS}, sessions=${SESSIONS})"
+else
+    LIMIT="$IDLE_MINUTES"
+    REASON="nothing running"
+fi
+
+if [ "$COUNT" -ge "$LIMIT" ]; then
+    logger -t idle-shutdown "GPU idle ${COUNT}m, ${REASON} — shutting down"
+    wall "GPU idle ${COUNT} minutes (${REASON}). Shutting down. Prevent with: touch ${HOLD}" 2>/dev/null
     sleep 10
     /sbin/shutdown -h now
 fi

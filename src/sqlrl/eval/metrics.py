@@ -34,12 +34,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-import sqlglot
 from sqlglot import expressions as exp
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import traverse_scope
 
-from sqlrl.eval.executor import compare, read_schema, requires_order, run
+from sqlrl.eval.executor import compare, parse_sql, read_schema, requires_order, run
 
 __all__ = [
     "ExampleScore",
@@ -62,11 +61,12 @@ _LITERAL = "<lit>"
 
 
 def parses(sql: str) -> bool:
-    """Can this be parsed as SQL at all? Isolates pure syntax failure."""
-    try:
-        return sqlglot.parse_one(sql, read=_DIALECT) is not None
-    except Exception:  # noqa: BLE001 -- unparseable predictions are the point
-        return False
+    """Can this be parsed as SQL at all? Isolates pure syntax failure.
+
+    Goes through ``parse_sql``, so output pathological enough to hang the
+    parser counts as unparseable rather than stopping the evaluation.
+    """
+    return parse_sql(sql) is not None
 
 
 def classify_error(status: str, error: str | None) -> str:
@@ -119,10 +119,7 @@ def structural_match(
 
 def _canonicalize(sql: str, schema: dict[str, dict[str, str]]) -> tuple[str, bool] | None:
     """Canonical text plus a flag for whether it resolved against the schema."""
-    try:
-        tree = sqlglot.parse_one(sql, read=_DIALECT)
-    except Exception:  # noqa: BLE001
-        return None
+    tree = parse_sql(sql)
     if tree is None:
         return None
 

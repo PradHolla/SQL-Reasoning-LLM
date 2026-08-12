@@ -10,7 +10,7 @@ import sqlite3
 
 import pytest
 
-from sqlrl.eval.executor import compare, requires_order, run
+from sqlrl.eval.executor import compare, parse_sql, requires_order, run
 
 
 @pytest.fixture(scope="module")
@@ -267,3 +267,50 @@ def test_end_to_end_avg_agrees_with_manual_average(db):
     pred = run("SELECT sum(age) * 1.0 / count(age) FROM people", db)
     assert compare(pred.rows, gold.rows) is True
     assert not math.isnan(gold.rows[0][0])
+
+
+# --------------------------------------------------------------------------
+# parse_sql -- the guard against a parser that never returns
+# --------------------------------------------------------------------------
+
+
+def test_parse_sql_accepts_normal_queries():
+    assert parse_sql("SELECT name FROM people WHERE age > 40") is not None
+
+
+def test_parse_sql_rejects_garbage():
+    assert parse_sql("SELECT FROM WHERE (((") is None
+    assert parse_sql("") is None
+
+
+def test_parse_sql_accepts_realistic_join_counts():
+    # The most JOINs in any of the 3,181 Spider gold queries is 6.
+    sql = "SELECT a FROM t0 " + " ".join(
+        f"JOIN t{i} ON t{i}.id = t0.id" for i in range(1, 7)
+    )
+    assert parse_sql(sql) is not None
+
+
+def test_parse_sql_refuses_degenerate_join_chains():
+    # sqlglot's parser is exponential in ON-less JOINs: 20 of them take 11s and
+    # a few more never return. A CPT prediction shaped exactly like this hung an
+    # evaluation run until the box idle-shut-down under it.
+    sql = "SELECT a FROM t0 " + " ".join(f"JOIN t{i}" for i in range(1, 40))
+    assert parse_sql(sql) is None
+
+
+def test_parse_sql_refuses_overlong_input():
+    # Longest legitimate gold query is 608 characters.
+    assert parse_sql("SELECT " + "a," * 2000 + "b FROM t") is None
+
+
+def test_degenerate_query_does_not_hang_the_metrics(db):
+    # The end-to-end property that actually matters: pathological model output
+    # must return a verdict quickly, not stall the run.
+    import time
+
+    sql = "SELECT a FROM t0 " + " ".join(f"JOIN t{i}" for i in range(1, 60))
+    start = time.perf_counter()
+    assert requires_order(sql) is False
+    assert run(sql, db).status == "error"
+    assert time.perf_counter() - start < 2.0

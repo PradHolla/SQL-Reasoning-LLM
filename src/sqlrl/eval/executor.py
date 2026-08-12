@@ -44,6 +44,7 @@ row sets and can see ``len(gold_rows) == 0``.
 from __future__ import annotations
 
 import math
+import re
 import sqlite3
 import time
 from collections import Counter
@@ -53,7 +54,15 @@ from typing import Any, Iterator, Literal, NamedTuple
 import sqlglot
 from sqlglot import expressions as exp
 
-__all__ = ["ExecResult", "Status", "compare", "read_schema", "requires_order", "run"]
+__all__ = [
+    "ExecResult",
+    "Status",
+    "compare",
+    "parse_sql",
+    "read_schema",
+    "requires_order",
+    "run",
+]
 
 Status = Literal["ok", "error", "timeout", "too_many_rows"]
 
@@ -70,6 +79,21 @@ _NAN = "\x00nan"
 #: Ceiling on the column-permutation search, so a pathological wide result with
 #: many identical columns cannot stall the eval loop.
 _PERMUTATION_BUDGET = 20_000
+
+#: Guards against sqlglot's parser, whose cost is exponential in the number of
+#: ON-less JOINs: 12 joins parse in 0.04s, 16 in 0.68s, 18 in 2.8s, 20 in 11.2s,
+#: and a few more never finish. A degenerate model output really does hang the
+#: evaluation -- this is not hypothetical, it stopped a run dead.
+#:
+#: The limits are set from the benchmark itself. Across all 3,181 Spider gold
+#: queries the longest is 608 characters and the most JOINs is 6, so these
+#: leave large headroom over anything legitimate while capping parse time in
+#: the milliseconds. Input beyond them is not "too complex to parse", it is
+#: model garbage, and reporting it as unparseable is the honest answer.
+MAX_SQL_CHARS = 2_000
+MAX_JOINS = 10
+
+_JOIN = re.compile(r"\bJOIN\b", re.IGNORECASE)
 
 Row = tuple[Any, ...]
 
@@ -195,6 +219,24 @@ def read_schema(db_path: str | Path) -> dict[str, dict[str, str]]:
         conn.close()
 
 
+def parse_sql(sql: str) -> exp.Expression | None:
+    """Parse SQL, refusing input that would make the parser blow up.
+
+    Returns ``None`` for anything unparseable *or* pathological. Every sqlglot
+    call in this project goes through here -- the executor has a timeout, but a
+    parser that never returns cannot be interrupted, and this same function is
+    what will run inside the Phase 2 reward loop on every rollout.
+    """
+    if not sql or len(sql) > MAX_SQL_CHARS:
+        return None
+    if len(_JOIN.findall(sql)) > MAX_JOINS:
+        return None
+    try:
+        return sqlglot.parse_one(sql, read="sqlite")
+    except Exception:  # noqa: BLE001 -- unparseable predictions are expected
+        return None
+
+
 def requires_order(sql: str) -> bool:
     """Does this query's result have a meaningful row order?
 
@@ -204,10 +246,7 @@ def requires_order(sql: str) -> bool:
     credit for a right answer; being too lax would hand out credit for a wrong
     one.
     """
-    try:
-        tree = sqlglot.parse_one(sql, read="sqlite")
-    except Exception:  # noqa: BLE001 -- unparseable predictions are expected
-        tree = None
+    tree = parse_sql(sql)
     if tree is None:
         # Fall back to the crude check rather than declaring the query unordered.
         return "order by" in sql.lower()
