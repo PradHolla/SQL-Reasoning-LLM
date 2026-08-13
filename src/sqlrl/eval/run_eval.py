@@ -87,6 +87,19 @@ DIAGNOSTICS: dict[str, ModelSpec] = {
         "cpt-chatprompt", "models/qwen-0.5b-cpt-lora", base=BASE_MODEL,
         chat=True, prompt="chat",
     ),
+    # base scores 17.4% with the completion prompt vs 3.6% with ChatML, which is
+    # higher than the entire v0 pipeline. Before concluding the pipeline
+    # destroyed value, check whether SFT and GRPO also gain from that prompt --
+    # if they do, the format is the story; if they do not, the pipeline really
+    # did end up below a correctly-prompted base model.
+    "sft-cptprompt": ModelSpec(
+        "sft-cptprompt", "models/qwen-0.5b-sft-lora", base=BASE_MODEL,
+        chat=True, prompt="cpt",
+    ),
+    "grpo-cptprompt": ModelSpec(
+        "grpo-cptprompt", "models/qwen-0.5b-reasoning-final", base=BASE_MODEL,
+        chat=True, prompt="cpt",
+    ),
 }
 
 MODELS: dict[str, ModelSpec] = {**BASELINES, **DIAGNOSTICS}
@@ -288,6 +301,10 @@ def main() -> int:
     elif args.model == "cpt2x2":
         # The four cells of the CPT disentangling experiment.
         names = ["base", "cpt", "base-cptprompt", "cpt-chatprompt"]
+    elif args.model == "promptsweep":
+        # Every 0.5B checkpoint against both prompt formats.
+        names = ["base", "base-cptprompt", "cpt", "cpt-chatprompt",
+                 "sft", "sft-cptprompt", "grpo", "grpo-cptprompt"]
     else:
         names = args.model.split(",")
     unknown = [n for n in names if n not in MODELS]
