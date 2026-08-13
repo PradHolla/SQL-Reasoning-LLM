@@ -40,20 +40,31 @@ BASE_MODEL = "Qwen/Qwen2.5-0.5B"
 class ModelSpec:
     """How to load one baseline.
 
-    ``chat`` drives both the tokenizer mode and the prompt shape, because in v0
-    those two things were decided together: SFT and GRPO trained on ChatML, CPT
-    trained on raw text. They cannot be mixed.
+    ``chat`` is the *tokenizer* mode -- which template and stop token the
+    checkpoint was trained with. ``prompt`` is the *prompt shape* sent to it.
+    They default together, because in v0 they were decided together: SFT and
+    GRPO trained on ChatML, CPT on raw text. Separating them is only for
+    diagnostics, where running a checkpoint against the other format is what
+    tells a weights effect apart from a prompt-format effect.
     """
 
     name: str
     path: str
     base: str | None = None
     chat: bool = True
+    #: "chat" or "cpt". Defaults to whatever `chat` implies. Set it explicitly
+    #: only to run a checkpoint against a prompt format it was not trained on,
+    #: which is how a weights effect gets separated from a prompt-format effect.
+    prompt: str | None = None
+
+    @property
+    def prompt_style(self) -> str:
+        return self.prompt or ("chat" if self.chat else "cpt")
 
 
 #: The five baselines. Greedy, pass@1, identical treatment across all of them --
 #: the comparison is only fair if nothing but the weights changes.
-MODELS: dict[str, ModelSpec] = {
+BASELINES: dict[str, ModelSpec] = {
     "base": ModelSpec("base", BASE_MODEL, chat=True),
     "cpt": ModelSpec("cpt", "models/qwen-0.5b-cpt-lora", base=BASE_MODEL, chat=False),
     "sft": ModelSpec("sft", "models/qwen-0.5b-sft-lora", base=BASE_MODEL, chat=True),
@@ -62,6 +73,23 @@ MODELS: dict[str, ModelSpec] = {
     ),
     "coder-7b": ModelSpec("coder-7b", "Qwen/Qwen2.5-Coder-7B-Instruct", chat=True),
 }
+
+#: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
+#: 2x2: Phase 1 measured CPT as neutral-to-harmful, but CPT was the only stage
+#: evaluated with the raw completion prompt, so weights and prompt format were
+#: confounded. With all four cells, comparing down a column isolates the weights
+#: and across a row isolates the prompt.
+DIAGNOSTICS: dict[str, ModelSpec] = {
+    "base-cptprompt": ModelSpec(
+        "base-cptprompt", BASE_MODEL, chat=False, prompt="cpt"
+    ),
+    "cpt-chatprompt": ModelSpec(
+        "cpt-chatprompt", "models/qwen-0.5b-cpt-lora", base=BASE_MODEL,
+        chat=True, prompt="chat",
+    ),
+}
+
+MODELS: dict[str, ModelSpec] = {**BASELINES, **DIAGNOSTICS}
 
 
 @dataclass
@@ -107,8 +135,8 @@ def _git_commit() -> str:
 # --------------------------------------------------------------------------
 
 
-def build_prompts(examples: list[Example], chat: bool) -> list:
-    """One prompt per example, in the training shape this model expects."""
+def build_prompts(examples: list[Example], style: str) -> list:
+    """One prompt per example, in the requested shape."""
     schemas: dict[str, str] = {}
     prompts = []
     for example in examples:
@@ -116,7 +144,8 @@ def build_prompts(examples: list[Example], chat: bool) -> list:
             schemas[example.db_id] = render_schema(read_schema(example.db_path))
         text = schemas[example.db_id]
         prompts.append(
-            chat_prompt(text, example.question) if chat else cpt_prompt(text, example.question)
+            chat_prompt(text, example.question) if style == "chat"
+            else cpt_prompt(text, example.question)
         )
     return prompts
 
@@ -143,9 +172,9 @@ def generate(
         seed=seed,
     )
     print(f"  loaded on {backend.device} ({backend.dtype}), "
-          f"stops on {backend.stop_ids}")
+          f"stops on {backend.stop_ids}, prompt={spec.prompt_style}")
 
-    prompts = build_prompts(examples, spec.chat)
+    prompts = build_prompts(examples, spec.prompt_style)
     started = time.perf_counter()
     outputs = backend.generate(prompts, max_new_tokens=max_new_tokens)
     elapsed = time.perf_counter() - started
@@ -220,13 +249,13 @@ def score(record: RunRecord, examples: list[Example], timeout: float) -> tuple[R
 def comparison_table(rows: list[tuple[str, Report, Report]]) -> str:
     """The model x metric table. The deliverable of Phase 1."""
     header = (
-        f"{'model':<10} {'EX':>7} {'EX/clean':>9} {'exec':>7} {'parse':>7} "
+        f"{'model':<16} {'EX':>7} {'EX/clean':>9} {'exec':>7} {'parse':>7} "
         f"{'struct':>7} {'n':>6}"
     )
     lines = [header, "-" * len(header)]
     for name, full, clean in rows:
         lines.append(
-            f"{name:<10} {full.execution_accuracy:>7.1%} {clean.execution_accuracy:>9.1%} "
+            f"{name:<16} {full.execution_accuracy:>7.1%} {clean.execution_accuracy:>9.1%} "
             f"{full.execution_rate:>7.1%} {full.parse_rate:>7.1%} "
             f"{full.structural_match:>7.1%} {full.n:>6}"
         )
@@ -239,7 +268,8 @@ def comparison_table(rows: list[tuple[str, Report, Report]]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate models on Spider.")
     parser.add_argument("--model", default="all",
-                        help=f"one of {', '.join(MODELS)}, or 'all'")
+                        help="model name, comma-separated names, 'all' for the "
+                             "five baselines, or 'cpt2x2' for the CPT experiment")
     parser.add_argument("--split", choices=SPLITS, default="test")
     parser.add_argument("--limit", type=int, default=None,
                         help="evaluate only the first N examples (smoke tests)")
@@ -253,7 +283,13 @@ def main() -> int:
                         help="re-score saved predictions without loading a model")
     args = parser.parse_args()
 
-    names = list(MODELS) if args.model == "all" else [args.model]
+    if args.model == "all":
+        names = list(BASELINES)
+    elif args.model == "cpt2x2":
+        # The four cells of the CPT disentangling experiment.
+        names = ["base", "cpt", "base-cptprompt", "cpt-chatprompt"]
+    else:
+        names = args.model.split(",")
     unknown = [n for n in names if n not in MODELS]
     if unknown:
         parser.error(f"unknown model(s): {unknown}. Choose from {list(MODELS)}")

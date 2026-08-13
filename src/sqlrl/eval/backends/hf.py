@@ -37,7 +37,7 @@ from transformers import AutoModelForCausalLM
 
 from sqlrl.eval.backends import Backend
 from sqlrl.eval.prompts import Prompt
-from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_stops_on, build_tokenizer
+from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_stops_within, build_tokenizer
 
 __all__ = ["HFBackend", "batched_in_order", "pick_device"]
 
@@ -117,13 +117,6 @@ class HFBackend(Backend):
         torch.manual_seed(seed)
 
         self.tokenizer = build_tokenizer(model_path, chat=chat)
-        if base_model is not None:
-            # The case assert_stops_on was written for: our adapter, loaded onto
-            # a base whose vocabulary may disagree with the checkpoint's. For a
-            # stock model the check is tautological -- and would wrongly reject
-            # a base model given a chat prompt, since stock Qwen stops on
-            # <|endoftext|> while chat mode wants <|im_end|>.
-            assert_stops_on(self.tokenizer, model_path)
         # Decoder-only generation must pad on the left. See module docstring.
         self.tokenizer.padding_side = "left"
 
@@ -141,6 +134,12 @@ class HFBackend(Backend):
                 if token_id is not None and token_id >= 0
             }
         )
+        # The invariant is "we stop on something this checkpoint emits", not
+        # "eos matches exactly" -- see assert_stops_within. Strict equality would
+        # reject running a checkpoint against a prompt format it was not trained
+        # on, which is exactly how a weights effect gets separated from a prompt
+        # effect.
+        assert_stops_within(model_path, self.stop_ids)
 
         source = base_model or model_path
         model = AutoModelForCausalLM.from_pretrained(source, dtype=self.dtype)

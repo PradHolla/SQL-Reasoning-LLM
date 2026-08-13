@@ -132,3 +132,28 @@ def assert_stops_on(tokenizer: PreTrainedTokenizerBase, checkpoint_path: str) ->
             f"Generation would never terminate. Build the tokenizer from the "
             f"checkpoint directory, not from a base model name."
         )
+
+
+def assert_stops_within(checkpoint_path: str, stop_ids: list[int]) -> None:
+    """Fail loudly unless generation halts on something the checkpoint emits.
+
+    The looser sibling of `assert_stops_on`, for callers that pass a *set* of
+    stop tokens to `generate` rather than relying on a single eos. The invariant
+    that actually matters is not "eos matches exactly" but "we stop on a token
+    this checkpoint was trained to produce".
+
+    That distinction is what makes it possible to run a checkpoint against a
+    prompt format it was not trained on — feeding the CPT adapter a ChatML
+    prompt to separate a weights effect from a prompt effect, for instance.
+    Strict equality would reject that experiment even though generation
+    terminates perfectly well.
+    """
+    saved = AutoTokenizer.from_pretrained(checkpoint_path)
+    if saved.eos_token_id not in stop_ids:
+        raise ValueError(
+            f"Stop-token mismatch against {checkpoint_path!r}.\n"
+            f"  checkpoint stops on: {saved.eos_token!r} (id {saved.eos_token_id})\n"
+            f"  generation stops on ids: {stop_ids}\n"
+            f"Generation would never terminate. Build the tokenizer from the "
+            f"checkpoint directory, not from a base model name."
+        )
