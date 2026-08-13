@@ -72,6 +72,12 @@ BASELINES: dict[str, ModelSpec] = {
         "grpo", "models/qwen-0.5b-reasoning-final", base=BASE_MODEL, chat=True
     ),
     "coder-7b": ModelSpec("coder-7b", "Qwen/Qwen2.5-Coder-7B-Instruct", chat=True),
+    # Phase 1.5: SFT redone on Spider train with full schemas. The bar it has to
+    # clear is not v0's SFT (4.6%) but the untrained base model's best prompt,
+    # 17.4% -- fine-tuning that lands below that is worse than not training.
+    "sft-spider": ModelSpec(
+        "sft-spider", "models/qwen-0.5b-sft-spider", base=BASE_MODEL, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
