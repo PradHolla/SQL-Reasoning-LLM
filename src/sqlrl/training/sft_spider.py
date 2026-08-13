@@ -143,15 +143,16 @@ def train(
     max_steps: int = -1,
     seed: int = 3407,
     report_to: str = "wandb",
+    output: Path = OUTPUT,
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
     # the next evaluation scores it happily and reports a real-looking number
     # for a model that was never trained. This already happened once, with a
     # 5-step smoke checkpoint.
-    if OUTPUT.exists():
-        print(f"removing previous checkpoint at {OUTPUT}")
-        shutil.rmtree(OUTPUT)
+    if output.exists():
+        print(f"removing previous checkpoint at {output}")
+        shutil.rmtree(output)
 
     tokenizer = build_tokenizer(BASE_MODEL, chat=True)
     train_dataset = load_split(SFT_DATA, tokenizer, limit)
@@ -206,11 +207,11 @@ def train(
     )
     trainer.train()
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(str(OUTPUT))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(output))
     # The tokenizer travels with the checkpoint -- see sqlrl.tokenizer.
-    tokenizer.save_pretrained(str(OUTPUT))
-    print(f"saved to {OUTPUT}")
+    tokenizer.save_pretrained(str(output))
+    print(f"saved to {output}")
 
 
 def main() -> int:
@@ -225,6 +226,7 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=-1)
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--report-to", default="wandb")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()
 
     if args.inspect:
@@ -241,6 +243,7 @@ def main() -> int:
         max_steps=args.max_steps,
         seed=args.seed,
         report_to=args.report_to,
+        output=args.output,
     )
     return 0
 

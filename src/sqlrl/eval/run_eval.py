@@ -76,7 +76,12 @@ BASELINES: dict[str, ModelSpec] = {
     # clear is not v0's SFT (4.6%) but the untrained base model's best prompt,
     # 17.4% -- fine-tuning that lands below that is worse than not training.
     "sft-spider": ModelSpec(
-        "sft-spider", "models/qwen-0.5b-sft-spider", base=BASE_MODEL, chat=True
+        "sft-spider", "models/qwen-0.5b-sft-spider-2ep", base=BASE_MODEL, chat=True
+    ),
+    # eval_loss was 0.296 after one epoch and 0.299 after two, so the second
+    # epoch may have bought nothing. Cheap to settle rather than assume.
+    "sft-spider-1ep": ModelSpec(
+        "sft-spider-1ep", "models/qwen-0.5b-sft-spider-1ep", base=BASE_MODEL, chat=True
     ),
 }
 
