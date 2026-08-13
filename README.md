@@ -1,4 +1,6 @@
-# SQL Reasoning LLM
+# SQL Reasoning LLM 
+
+> **A note on AI use:** this is a learning project, and I build it with AI models — Gemini, Claude Sonnet and Claude Opus — as collaborators.
 
 An end to end machine learning pipeline that trains a compact, 0.5B parameter language model to autonomously convert natural language questions into highly accurate SQL queries. 
 
