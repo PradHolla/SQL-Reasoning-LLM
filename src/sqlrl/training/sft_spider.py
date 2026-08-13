@@ -37,6 +37,7 @@ they are the baseline that makes every later number mean something.
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 
 import torch
@@ -65,6 +66,15 @@ LORA_TARGETS = [
 #: Longest example in the dataset is 1,742 tokens. TRL's default is 1,024, which
 #: would silently truncate ~5% of the data mid-query.
 MAX_LENGTH = 2_048
+
+#: Batch size is bounded by the logits tensor, not the model. Qwen2.5's
+#: vocabulary is 151,936, so logits are batch x seq_len x 151,936 upcast to fp32
+#: for the loss: at batch 8 and a 1,742-token example that is 8.5 GB on its own,
+#: which OOMs a 22 GB A10G. Batch 4 halves it to ~4.2 GB. The model itself is
+#: only ~1 GB -- it is never the constraint here.
+#:
+#: A short smoke run will not catch this: with --limit the long examples are
+#: usually not in the sample, and the failure only appears when one is.
 
 
 def to_prompt_completion(row: dict, tokenizer) -> dict:
@@ -127,13 +137,22 @@ def train(
     *,
     epochs: float = 2.0,
     learning_rate: float = 1e-4,
-    batch_size: int = 8,
-    grad_accum: int = 2,
+    batch_size: int = 4,
+    grad_accum: int = 4,
     limit: int | None = None,
     max_steps: int = -1,
     seed: int = 3407,
     report_to: str = "wandb",
 ) -> None:
+    # Clear any previous checkpoint before training, not after. A crashed run
+    # that leaves a stale adapter behind is worse than one that leaves nothing:
+    # the next evaluation scores it happily and reports a real-looking number
+    # for a model that was never trained. This already happened once, with a
+    # 5-step smoke checkpoint.
+    if OUTPUT.exists():
+        print(f"removing previous checkpoint at {OUTPUT}")
+        shutil.rmtree(OUTPUT)
+
     tokenizer = build_tokenizer(BASE_MODEL, chat=True)
     train_dataset = load_split(SFT_DATA, tokenizer, limit)
     eval_dataset = load_split(VAL_DATA, tokenizer, limit)
@@ -200,8 +219,8 @@ def main() -> int:
                         help="print one example with its loss mask, then exit")
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--grad-accum", type=int, default=2)
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--grad-accum", type=int, default=4)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--max-steps", type=int, default=-1)
     parser.add_argument("--seed", type=int, default=3407)
