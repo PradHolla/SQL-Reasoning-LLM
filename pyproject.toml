@@ -18,6 +18,14 @@ dependencies = [
     "wandb>=0.25.1",
 ]
 
+# NOTE: vLLM is deliberately NOT a dependency here, optional or otherwise.
+# It pins torch and transformers hard, and every version of it conflicts with
+# some combination of this project's torch>=2.10, transformers>=5.2 and unsloth.
+# Resolving that would mean upgrading the training stack, which would change
+# training and evaluation behaviour and break the chain of comparable numbers
+# this whole project is built on. The teacher-sampling step runs in its own
+# throwaway environment instead -- see requirements-teacher.txt.
+
 [project.scripts]
 eval = "sqlrl.eval.run_eval:main"
 

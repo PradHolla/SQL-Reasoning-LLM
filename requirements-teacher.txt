@@ -1,0 +1,23 @@
+# Environment for the Phase 3 teacher-sampling step only. Not the project's
+# environment, on purpose.
+#
+#   uv venv .venv-teacher
+#   uv pip install --python .venv-teacher -r requirements-teacher.txt
+#   PYTHONPATH=src .venv-teacher/bin/python -m sqlrl.data_prep.sample_traces
+#
+# Why it is separate. vLLM pins torch and transformers to exact versions, and
+# there is no version of it compatible with this project's torch>=2.10 +
+# transformers>=5.2 + unsloth. The tempting fix is to relax those pins in
+# pyproject.toml. Don't: every number in this repo was produced on the current
+# stack, and quietly upgrading torch or transformers underneath the trainer and
+# the evaluator would make the next result incomparable with the last one for
+# reasons nobody would think to check.
+#
+# Sampling is a standalone job -- generate text, execute SQL, write jsonl -- so
+# it costs nothing to run it somewhere else. `sqlrl.eval.executor`,
+# `sqlrl.eval.metrics` and `sqlrl.eval.prompts` only need sqlglot and the
+# standard library, which is why PYTHONPATH=src is enough and this environment
+# never has to install the project.
+
+vllm
+sqlglot>=29.0.1
