@@ -21,3 +21,10 @@
 
 vllm
 sqlglot>=29.0.1
+
+# vLLM's FlashInfer attention backend JIT-compiles its kernels on first use and
+# shells out to ninja to do it. The deep-learning AMI ships nvcc and g++ but not
+# ninja, so without this the engine dies during KV-cache init with a bare
+# "FileNotFoundError: 'ninja'" buried under a vLLM traceback that blames engine
+# startup.
+ninja
