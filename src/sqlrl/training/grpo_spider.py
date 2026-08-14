@@ -149,7 +149,11 @@ def assert_prompts_fit(dataset: Dataset, tokenizer, max_prompt_length: int) -> N
         )["input_ids"])
         for row in dataset
     ]
-    longest = max(lengths)
+    # default=0 rather than max(lengths): an empty dataset has no prompt to
+    # truncate, so it is not this function's business to complain -- and
+    # crashing here with "max() iterable argument is empty" would bury the
+    # actual problem under a traceback about the guard rather than the data.
+    longest = max(lengths, default=0)
     over = sum(length > max_prompt_length for length in lengths)
     if over:
         raise ValueError(
