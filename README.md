@@ -1,6 +1,6 @@
 # SQL Reasoning LLM
 
-> **A note on AI use:** this is a learning project, and I build it with AI models — Gemini, Claude Sonnet and Claude Opus — as collaborators.
+> **A note on AI use:** this is a learning project, and I build it with AI models — Claude Sonnet and Claude Opus — as collaborators.
 
 Post-training a 0.5B model (`Qwen2.5-0.5B`) to turn English questions into SQL that actually runs and returns the right rows.
 
@@ -98,7 +98,18 @@ Keeping these because they're the actual lesson, and all three failed silently �
 
 **Unsloth rewrote the vocabulary.** `get_chat_template` swapped the ids of `<|im_end|>` and `<|endoftext|>` during training. Pair those checkpoints with a stock tokenizer and generation never stops, every completion runs to the token limit, and your eval score reads near zero for reasons that have nothing to do with the model. Unsloth is gone now.
 
-**Config agreement is not behavioural agreement.** I had an assertion specifically to catch stop-token mismatches. It passes on the current SFT checkpoint. It compares the tokenizer's eos to the *saved tokenizer's* eos — both say `<|im_end|>` — and the model emits neither, because it was actually trained to end on `<|endoftext|>`. Two configs agreeing with each other tells you nothing about what the weights do. The only real check is to generate and look, which is what `assert_model_stops` now does. This one cost a full GRPO pilot run.
+**You can't teach a base model a token it was never taught.** My SFT trained the model to end its turn with `<|im_end|>`. The data was right, the loss mask covered that token, two epochs ran over it — and the trained model emits `<|im_end|>` essentially never. GRPO then spent a whole pilot run generating rollouts that never terminated.
+
+The reason is in the base model. Qwen2.5-0.5B **base** carries the ChatML special tokens in its vocabulary but never trained them — only the Instruct variants use ChatML. Their embeddings are still sitting near random initialisation:
+
+```
+<|endoftext|>   row norm 0.5987   98.40th percentile
+<|im_end|>      row norm 0.3010    1.52th percentile
+```
+
+LoRA targets attention and MLP, not the embedding — and Qwen ties the embedding to the output head. So to emit `<|im_end|>` the model would have had to steer its hidden state onto a near-random 896-dimensional vector while competing against a well-trained `<|endoftext|>`. The gradient had nowhere to go. It learned *where* to stop and picked the token it could actually reach.
+
+The wider lesson is the checking, though. I already had an assertion for stop-token mismatches, and **it passes on the broken checkpoint** — it compares the tokenizer's eos to the saved tokenizer's eos, both say `<|im_end|>`, and the model agrees with neither. Two configs agreeing tells you nothing about what the weights do. The only real check is to generate and look, which is what `assert_model_stops` does now, in both trainers, before anything gets saved.
 
 **TRL's default quietly cancelled the reward design.** `scale_rewards="group"` divides each group's advantages by that group's own standard deviation. The *ordering* of the reward tiers survives that; the *spacing* does not. A group where the best sample was genuinely correct ends up pushing exactly as hard as one where the best sample merely parsed — any two-outcome group normalises to the same advantage. I'd have shipped a carefully-designed ladder that behaved like a coin flip. `scale_rewards="none"` fixes it.
 

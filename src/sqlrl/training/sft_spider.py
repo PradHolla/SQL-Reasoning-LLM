@@ -46,7 +46,13 @@ from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
-from sqlrl.tokenizer import CHAT_EOS, build_tokenizer, special_token_ids
+from sqlrl.tokenizer import (
+    BASE_EOS,
+    CHAT_EOS,
+    assert_model_stops,
+    build_tokenizer,
+    special_token_ids,
+)
 
 __all__ = ["train"]
 
@@ -66,6 +72,41 @@ LORA_TARGETS = [
 #: Longest example in the dataset is 1,742 tokens. TRL's default is 1,024, which
 #: would silently truncate ~5% of the data mid-query.
 MAX_LENGTH = 2_048
+
+#: The token completions are trained to end on, and it is deliberately NOT
+#: ChatML's <|im_end|>.
+#:
+#: The first run of this trainer taught the model to end turns with <|im_end|>
+#: -- the data was correct, the loss mask covered that token, and two epochs ran
+#: over it. The model still emits <|im_end|> essentially never. After </answer>
+#: its next-token distribution is near-uniform (top token 0.037%), it picks a
+#: junk byte, and only then falls back to <|endoftext|>.
+#:
+#: The cause is in the base model, not in the data. Qwen2.5-0.5B **base** carries
+#: the ChatML specials in its vocabulary but never trained them -- only the
+#: Instruct variants use ChatML. Measured on the stock checkpoint's output
+#: embedding:
+#:
+#:     <|endoftext|>   row norm 0.5987   98.40th percentile
+#:     <|im_end|>      row norm 0.3010    1.52th percentile
+#:     <|im_start|>    row norm 0.3010    1.69th percentile
+#:
+#: <|im_end|> is still sitting at its random initialisation. LoRA targets only
+#: the attention and MLP projections and `modules_to_save` is None, so the
+#: embedding is frozen -- and with tie_word_embeddings=True that embedding *is*
+#: the output head. To emit <|im_end|> the model would have to steer its hidden
+#: state onto a near-random 896-dim vector while competing with a well-trained
+#: <|endoftext|>. The gradient had nowhere to go.
+#:
+#: So train on the token the model can actually produce. The alternative is to
+#: put embed_tokens in `modules_to_save` and learn the ChatML specials properly,
+#: which is defensible but adds 136M trainable parameters (the embedding is ~27%
+#: of this model) and changes the input embeddings too. Not worth it to move a
+#: stop token.
+#:
+#: <|im_end|> stays in the *prompt* as a turn separator. Reading a weakly-trained
+#: token is a far easier job than producing one, and 44.6% says it copes.
+TRAIN_EOS = BASE_EOS
 
 #: Batch size is bounded by the logits tensor, not the model. Qwen2.5's
 #: vocabulary is 151,936, so logits are batch x seq_len x 151,936 upcast to fp32
@@ -92,9 +133,9 @@ def to_prompt_completion(row: dict, tokenizer) -> dict:
         )
 
     # The chat template already closes the turn with <|im_end|>, and TRL appends
-    # an eos of its own -- verified by decoding a processed example, which ended
-    # "<|im_end|> \n <|im_end|>". Left alone this trains the model to emit two
-    # stop tokens. Strip the template's copy and let TRL supply the single one.
+    # an eos of its own. Left alone this trains the model to emit two stop
+    # tokens. Strip the template's copy and let TRL supply the single one --
+    # which is TRAIN_EOS, not <|im_end|>. See the note on TRAIN_EOS above.
     completion = full[len(prompt):].rstrip()
     if completion.endswith(CHAT_EOS):
         completion = completion[: -len(CHAT_EOS)].rstrip()
@@ -187,6 +228,9 @@ def train(
         packing=False,
         # The whole point of the prompt/completion split above.
         completion_only_loss=True,
+        # Overrides the tokenizer's <|im_end|>, which this base model cannot
+        # learn to emit. See TRAIN_EOS.
+        eos_token=TRAIN_EOS,
         logging_steps=10,
         eval_strategy="epoch",
         per_device_eval_batch_size=batch_size,
@@ -206,6 +250,21 @@ def train(
         args=args,
     )
     trainer.train()
+
+    # Ask the weights, not the config. Two epochs of loss on <|im_end|> produced
+    # a model that emits it never, and nothing in this script noticed -- the run
+    # looked healthy, the loss fell, and the defect only surfaced two phases
+    # later as a GRPO pilot where no rollout terminated. Checked here now, while
+    # the model is still in memory and rerunning costs ten minutes.
+    prompts = [
+        tokenizer.apply_chat_template(
+            row["messages"][:-1], tokenize=False, add_generation_prompt=True
+        )
+        for row in load_dataset("json", data_files=str(VAL_DATA), split="train").select(range(4))
+    ]
+    lengths = assert_model_stops(model, tokenizer, prompts, max_new_tokens=320)
+    print(f"stop check: completions terminate in {lengths} tokens, "
+          f"stopping on {tokenizer.eos_token!r} (id {tokenizer.eos_token_id})")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(output))

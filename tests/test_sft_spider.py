@@ -7,10 +7,12 @@ thing -- there is no crash to tell you.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
-from sqlrl.tokenizer import CHAT_EOS, build_tokenizer
-from sqlrl.training.sft_spider import to_prompt_completion
+from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, build_tokenizer
+from sqlrl.training.sft_spider import TRAIN_EOS, to_prompt_completion, train
 
 
 @pytest.fixture(scope="module")
@@ -62,6 +64,34 @@ def test_prompt_is_the_larger_half(tokenizer, row):
     assert len(tokenizer(out["prompt"])["input_ids"]) > len(
         tokenizer(out["completion"])["input_ids"]
     )
+
+
+def test_completions_are_trained_to_end_on_a_token_the_base_model_can_emit():
+    # Not a style preference. Qwen2.5-0.5B *base* ships the ChatML specials but
+    # never trained them: <|im_end|>'s output-embedding row sits in the 1.5th
+    # percentile by norm, near random init, while <|endoftext|> is in the 98th.
+    # LoRA freezes that embedding (tie_word_embeddings=True, modules_to_save
+    # None), so two epochs of loss on <|im_end|> moved nothing and the trained
+    # model emitted it never. If anyone "fixes" this back to CHAT_EOS for
+    # ChatML tidiness, generation stops terminating and the symptom appears two
+    # stages later as a GRPO run where no rollout ends.
+    assert TRAIN_EOS == BASE_EOS
+    assert TRAIN_EOS != CHAT_EOS
+
+
+def test_the_trainer_actually_passes_train_eos_to_trl():
+    # The constant above is inert unless SFTConfig receives it -- TRL otherwise
+    # appends processing_class.eos_token, which is <|im_end|>.
+    source = inspect.getsource(train)
+    assert "eos_token=TRAIN_EOS" in source
+
+
+def test_the_trainer_verifies_the_model_stops_before_saving():
+    # The defect this guards against produced a checkpoint that looked healthy:
+    # loss fell, eval loss fell, and nothing terminated. Only generating catches
+    # it, so the trainer must generate before it saves.
+    source = inspect.getsource(train)
+    assert "assert_model_stops" in source
 
 
 def test_non_prefix_stable_template_is_rejected(row):

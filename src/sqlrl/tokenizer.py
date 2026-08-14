@@ -134,6 +134,65 @@ def assert_stops_on(tokenizer: PreTrainedTokenizerBase, checkpoint_path: str) ->
         )
 
 
+def assert_model_stops(
+    model,
+    tokenizer: PreTrainedTokenizerBase,
+    prompts: list[str],
+    max_new_tokens: int = 320,
+) -> list[int]:
+    """Generate from `prompts` and fail unless the model actually terminates.
+
+    The only check in this module that asks the *weights* a question. Everything
+    above compares one configuration to another, and that turns out not to be
+    enough: `assert_stops_on` passes on a checkpoint whose tokenizer says
+    `<|im_end|>` and whose saved tokenizer says `<|im_end|>` and which emits
+    `<|im_end|>` never. Two configs agreeing tells you nothing about what the
+    model does.
+
+    Why that happened, because it is not obvious: Qwen2.5-0.5B **base** ships the
+    ChatML specials in its vocabulary but never trained them -- only the Instruct
+    variants use ChatML. `<|im_end|>`'s output-embedding row sits in the 1.5th
+    percentile by norm, still near its random initialisation, while
+    `<|endoftext|>` is in the 98th. Fine-tune with LoRA on attention and MLP only
+    and that embedding is frozen, so no amount of loss on `<|im_end|>` can make
+    the model produce it.
+
+    Cost of not having this: a full GRPO pilot run in which every rollout ran to
+    the token cap, 97-100% of completions were truncated, and each step generated
+    roughly 7x the tokens it needed.
+
+    Returns the completion lengths, so callers can report them.
+    """
+    import torch  # local: eval paths that never generate should not pay for it
+
+    was_training = model.training
+    model.eval()
+    lengths = []
+    try:
+        for prompt in prompts:
+            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            with torch.no_grad():
+                out = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    eos_token_id=tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.pad_token_id,
+                )
+            lengths.append(out.shape[1] - inputs["input_ids"].shape[1])
+    finally:
+        model.train(was_training)
+
+    if all(length >= max_new_tokens for length in lengths):
+        raise ValueError(
+            f"None of {len(prompts)} completions terminated within "
+            f"{max_new_tokens} tokens (lengths {lengths}). Generation stops on "
+            f"{tokenizer.eos_token!r} (id {tokenizer.eos_token_id}), which this "
+            f"model apparently never emits."
+        )
+    return lengths
+
+
 def assert_stops_within(checkpoint_path: str, stop_ids: list[int]) -> None:
     """Fail loudly unless generation halts on something the checkpoint emits.
 
