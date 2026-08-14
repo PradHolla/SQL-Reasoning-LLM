@@ -53,7 +53,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 
-from sqlrl.tokenizer import build_tokenizer
+from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, build_tokenizer
 from sqlrl.training.rewards import SQLReward, drop_empty_gold
 
 __all__ = ["train"]
@@ -165,6 +165,51 @@ def assert_prompts_fit(dataset: Dataset, tokenizer, max_prompt_length: int) -> N
           f"({longest / max_prompt_length:.0%} of budget), 0 truncated")
 
 
+def assert_model_stops(model, tokenizer, dataset, max_new_tokens: int, samples: int = 4) -> None:
+    """Generate a few completions and check they actually terminate.
+
+    This is the check that catches what `assert_stops_on` structurally cannot.
+    That function compares the *tokenizer's* eos to the *saved tokenizer's* eos
+    and passes when they agree -- and here they do, both saying `<|im_end|>`.
+    The model disagrees with both of them: it was trained to end turns with
+    `<|endoftext|>` and emits `<|im_end|>` never.
+
+    Config agreement is not behavioural agreement, and only generating can tell
+    them apart. Left unchecked it cost a full pilot run: TRL stops on a single
+    eos id (`grpo_trainer.py:291`), so every rollout ran to the cap, 97-100% of
+    completions were truncated, and each step generated ~7x the tokens it
+    needed to.
+    """
+    model.eval()
+    lengths = []
+    for row in list(dataset)[:samples]:
+        text = tokenizer.apply_chat_template(
+            row["prompt"], tokenize=False, add_generation_prompt=True
+        )
+        inputs = tokenizer(text, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+        lengths.append(out.shape[1] - inputs["input_ids"].shape[1])
+    model.train()
+
+    if all(length >= max_new_tokens for length in lengths):
+        raise ValueError(
+            f"None of {samples} sample completions terminated within "
+            f"{max_new_tokens} tokens (lengths {lengths}). Generation stops on "
+            f"{tokenizer.eos_token!r} (id {tokenizer.eos_token_id}), which this "
+            f"model apparently never emits. Every rollout would be truncated and "
+            f"the run would waste most of its generation budget."
+        )
+    print(f"stop check: completions terminate in {lengths} tokens "
+          f"(cap {max_new_tokens}), stopping on {tokenizer.eos_token!r}")
+
+
 class RewardOutcomes(TrainerCallback):
     """Log the reward's outcome distribution alongside TRL's own metrics.
 
@@ -242,6 +287,34 @@ def train(
     # not do when one is passed in. Left to the Qwen default of "right", an
     # over-length prompt keeps the schema and loses the question.
     tokenizer.truncation_side = "left"
+
+    # ------------------------------------------------------------------
+    # Stop on what the model actually emits, not on what ChatML says it
+    # should. `build_tokenizer(chat=True)` sets eos to `<|im_end|>`, which is
+    # correct for the format -- but this checkpoint was trained to end turns
+    # with `<|endoftext|>`, because sft_spider.py strips the template's
+    # `<|im_end|>` and lets TRL append an eos, and TRL appended the base
+    # model's. Measured directly: across 8 prompts the checkpoint emits 151643
+    # every time and 151645 never.
+    #
+    # The evaluator survived this because its backend stops on a *set* of ids
+    # (eos + BASE_EOS + CHAT_EOS), so Phase 1.5's 44.6% is unaffected. TRL's
+    # GRPO stops on a single id, which is why this surfaced here first.
+    #
+    # This is a workaround for a defective checkpoint, deliberately local to
+    # this file: changing `build_tokenizer` would break the evaluator, which is
+    # doing the right thing. The real fix is retraining SFT to terminate turns
+    # properly -- a Phase 3 prerequisite, not a Phase 2 detour.
+    #
+    # pad must stay distinct from eos: when they are the same token, a padded
+    # batch is indistinguishable from a batch of finished sequences. So the two
+    # swap roles rather than collapsing onto one.
+    tokenizer.eos_token = BASE_EOS   # 151643 -- what the model emits
+    tokenizer.pad_token = CHAT_EOS   # 151645 -- which it never emits, so it is free
+    print(f"stopping on {tokenizer.eos_token!r} (id {tokenizer.eos_token_id}), "
+          f"padding with {tokenizer.pad_token!r} (id {tokenizer.pad_token_id})")
+    # ------------------------------------------------------------------
+
     assert_prompts_fit(dataset, tokenizer, MAX_PROMPT_LENGTH)
 
     base = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.bfloat16)
@@ -250,6 +323,7 @@ def train(
     # nothing while reporting a perfectly normal-looking loss.
     model = PeftModel.from_pretrained(base, str(adapter), is_trainable=True)
     model.print_trainable_parameters()
+    assert_model_stops(model, tokenizer, dataset, MAX_COMPLETION_LENGTH)
 
     args = GRPOConfig(
         output_dir=str(CHECKPOINTS),
