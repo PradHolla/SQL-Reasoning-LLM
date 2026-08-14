@@ -233,13 +233,15 @@ class RewardOutcomes(TrainerCallback):
 
             if wandb.run is not None:
                 wandb.log(report, step=state.global_step)
-                return
         except ImportError:
             pass
-        # Logged either way: a run without W&B should still show the shape of
-        # the reward, since that is the only thing that reveals hacking.
+        # Printed as well as logged, never instead of. The first pilot sent this
+        # to W&B and returned, so the one signal that reveals reward hacking was
+        # absent from the run log — exactly where you look when reconstructing
+        # what happened afterwards.
         print(f"  step {state.global_step} outcomes: "
-              + "  ".join(f"{k.split('/')[-1]} {v:.0%}" for k, v in report.items() if v))
+              + "  ".join(f"{k.split('/')[-1]} {v:.0%}" for k, v in report.items() if v),
+              flush=True)
 
 
 def train(
