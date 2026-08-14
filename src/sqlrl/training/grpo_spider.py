@@ -316,6 +316,20 @@ def train(
         num_completions_to_print=2,
     )
 
+    # TRL 0.24 does `model.warnings_issued["estimate_tokens"] = True`
+    # (grpo_trainer.py:406) to suppress a "could not estimate the number of
+    # tokens" warning, because GRPO's batches carry "prompt" rather than
+    # "input_ids". transformers 5.2 removed `warnings_issued` from
+    # PreTrainedModel, so that line raises AttributeError and GRPOTrainer
+    # cannot be constructed at all. Nothing to do with PEFT -- a plain model
+    # fails identically; `hasattr(model, "warnings_issued")` is False on stock
+    # transformers 5.2.0.
+    #
+    # The attribute is a dict of already-emitted warnings and nothing else
+    # reads it, so supplying one is inert. Delete this when TRL catches up.
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
