@@ -83,6 +83,14 @@ BASELINES: dict[str, ModelSpec] = {
     "sft-spider-1ep": ModelSpec(
         "sft-spider-1ep", "models/qwen-0.5b-sft-spider-1ep", base=BASE_MODEL, chat=True
     ),
+    # Phase 2: GRPO from sft-spider-2ep with the execution-grounded reward, one
+    # epoch over the 1,013-example GRPO split. The bar is sft-spider's 44.6% and
+    # nothing else -- this is the first comparison in the project that isolates
+    # what RL contributed, since v0's GRPO differed from its SFT in the split it
+    # trained on as well as the algorithm.
+    "grpo-spider": ModelSpec(
+        "grpo-spider", "models/qwen-0.5b-grpo-spider", base=BASE_MODEL, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
