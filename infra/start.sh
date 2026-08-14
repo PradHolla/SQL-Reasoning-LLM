@@ -75,10 +75,22 @@ for ID in "${IDS[@]}"; do
     done
 
     if [[ "$PULL" == "1" ]]; then
+        # results/ is discarded before pulling, every time. Eval runs write
+        # there, so the box always has modified and untracked files under it,
+        # and the pull aborts. That has now blocked a pull four separate times,
+        # and twice the failure was masked because the calling command piped
+        # git through `tail`. The box's copies are never the only copies: the
+        # workflow is to scp results down, commit them on the laptop, and push.
+        #
+        # Scoped to results/ deliberately. `git checkout -- .` would silently
+        # destroy a real fix someone made on the box at 2am.
         echo "==> git pull"
-        ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "ubuntu@$IP" \
-            'cd /opt/sql-llm/repo && git pull --ff-only && git log --oneline -1' || \
-            echo "  (pull failed — local changes on the box?)"
+        ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no "ubuntu@$IP" '
+            cd /opt/sql-llm/repo &&
+            git checkout -- results/ 2>/dev/null;
+            git clean -qfd results/ 2>/dev/null;
+            git pull --ff-only && git log --oneline -1
+        ' || echo "  (pull failed — uncommitted work on the box outside results/?)"
     fi
 
     cat <<EOF

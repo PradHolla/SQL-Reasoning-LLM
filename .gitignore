@@ -42,3 +42,8 @@ data/
 
 # Working notes / roadmap — kept local, not published
 BLUEPRINT.md
+
+# Run logs live in the repo (not /tmp, which an idle-shutdown reboot wipes --
+# see infra/run.sh) but they are machine-local and must never be committed.
+logs/
+.venv-teacher/
