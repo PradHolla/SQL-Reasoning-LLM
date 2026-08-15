@@ -106,6 +106,14 @@ MAX_LENGTH = 2_048
 #:
 #: <|im_end|> stays in the *prompt* as a turn separator. Reading a weakly-trained
 #: token is a far easier job than producing one, and 44.6% says it copes.
+#:
+#: Checked again for Phase 4 rather than assumed. `Qwen2.5-Coder-1.5B` has the
+#: same problem and slightly worse: <|im_end|> at the 0.64th percentile against
+#: <|endoftext|> at the 99.12th. So this constant is right for both bases --
+#: but it is a property of the base model, not a law. Run
+#: `python -m sqlrl.base_report <model>` before adopting a new one; an
+#: instruction-tuned variant will have trained <|im_end|> and would want
+#: CHAT_EOS here instead.
 TRAIN_EOS = BASE_EOS
 
 #: Batch size is bounded by the logits tensor, not the model. Qwen2.5's
@@ -187,6 +195,7 @@ def train(
     output: Path = OUTPUT,
     data: Path = SFT_DATA,
     val_data: Path = VAL_DATA,
+    base_model: str = BASE_MODEL,
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
@@ -197,13 +206,14 @@ def train(
         print(f"removing previous checkpoint at {output}")
         shutil.rmtree(output)
 
-    tokenizer = build_tokenizer(BASE_MODEL, chat=True)
+    tokenizer = build_tokenizer(base_model, chat=True)
+    print(f"base model: {base_model}")
     train_dataset = load_split(data, tokenizer, limit)
     eval_dataset = load_split(val_data, tokenizer, limit)
     print(f"train from {data}\nval   from {val_data}")
     print(f"train {len(train_dataset)} | val {len(eval_dataset)}")
 
-    model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.bfloat16)
     model = get_peft_model(
         model,
         LoraConfig(
@@ -292,10 +302,12 @@ def main() -> int:
     parser.add_argument("--data", type=Path, default=SFT_DATA,
                         help="training jsonl; point at spider_sft_traces.jsonl for Phase 3")
     parser.add_argument("--val-data", type=Path, default=VAL_DATA)
+    parser.add_argument("--base-model", default=BASE_MODEL,
+                        help="run sqlrl.base_report on any new base first")
     args = parser.parse_args()
 
     if args.inspect:
-        tokenizer = build_tokenizer(BASE_MODEL, chat=True)
+        tokenizer = build_tokenizer(args.base_model, chat=True)
         inspect(tokenizer, load_split(args.data, tokenizer, limit=4))
         return 0
 
@@ -311,6 +323,7 @@ def main() -> int:
         output=args.output,
         data=args.data,
         val_data=args.val_data,
+        base_model=args.base_model,
     )
     return 0
 

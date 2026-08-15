@@ -232,6 +232,7 @@ def train(
     adapter: Path = SFT_CHECKPOINT,
     output: Path = OUTPUT,
     max_completion_length: int = MAX_COMPLETION_LENGTH,
+    base_model: str = BASE_MODEL,
 ) -> None:
     if not adapter.is_dir():
         raise FileNotFoundError(
@@ -293,7 +294,8 @@ def train(
 
     assert_prompts_fit(dataset, tokenizer, MAX_PROMPT_LENGTH)
 
-    base = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.bfloat16)
+    print(f"base model: {base_model}")
+    base = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.bfloat16)
     # is_trainable=True keeps the SFT adapter as the thing being optimised.
     # Without it peft loads the adapter in inference mode and GRPO would train
     # nothing while reporting a perfectly normal-looking loss.
@@ -445,6 +447,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--max-completion-length", type=int,
                         default=MAX_COMPLETION_LENGTH)
+    parser.add_argument("--base-model", default=BASE_MODEL,
+                        help="must match the base the adapter was trained on")
     args = parser.parse_args()
 
     if args.inspect:
@@ -465,6 +469,7 @@ def main() -> int:
         adapter=args.adapter,
         output=args.output,
         max_completion_length=args.max_completion_length,
+        base_model=args.base_model,
     )
     return 0
 

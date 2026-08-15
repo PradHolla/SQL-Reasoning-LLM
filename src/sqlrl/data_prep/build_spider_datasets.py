@@ -57,6 +57,10 @@ THINK = (
 
 DEFAULT_OUT = Path("data/processed")
 
+#: Token-length reporting only. Qwen2.5 and Qwen2.5-Coder share a 151,936
+#: vocabulary, so this does not have to track the base model being trained.
+TOKENIZER_FOR_REPORT = "Qwen/Qwen2.5-0.5B"
+
 #: Databases go to validation first, then GRPO, and SFT takes the remainder.
 #: Filling the small splits first is what makes them land near their targets.
 VAL_TARGET = 500
@@ -205,7 +209,9 @@ def _report(
             print(f"  {reason:32s} {count}")
 
     print("\n=== token lengths (Qwen2.5 tokenizer, full prompt + answer) ===")
-    tokenizer = build_tokenizer("Qwen/Qwen2.5-0.5B", chat=True)
+    # Only used for the length report below. Every Qwen2.5 variant we use
+    # shares this vocabulary, so the numbers hold across bases.
+    tokenizer = build_tokenizer(TOKENIZER_FOR_REPORT, chat=True)
     for split in ("sft", "grpo", "val"):
         records = buckets.get(split, [])
         if not records:

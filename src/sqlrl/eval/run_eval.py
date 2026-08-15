@@ -34,6 +34,9 @@ __all__ = ["MODELS", "ModelSpec", "main"]
 
 DEFAULT_RESULTS = Path("results")
 BASE_MODEL = "Qwen/Qwen2.5-0.5B"
+#: Phase 4. Code-pretrained and 3x the parameters; ModelSpec.base is per-spec,
+#: so 0.5B and 1.5B checkpoints coexist in one table and one eval run.
+CODER_1_5B = "Qwen/Qwen2.5-Coder-1.5B"
 
 
 @dataclass(frozen=True)
