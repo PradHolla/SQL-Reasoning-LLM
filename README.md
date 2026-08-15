@@ -1,6 +1,6 @@
 # SQL Reasoning LLM
 
-> **A note on AI use:** this is a learning project, and I build it with AI models — Claude Sonnet and Claude Opus — as collaborators.
+> **A note on AI use:** this is a learning project, and I built it with AI models like Claude Opus, Sonnet, with also a little bit of Google Gemini too, as collaborators.
 
 Teaching a very small language model (0.5B parameters) to answer questions about a database by writing SQL that actually runs and returns the right rows.
 
