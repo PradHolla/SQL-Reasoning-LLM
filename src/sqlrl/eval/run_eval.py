@@ -122,6 +122,13 @@ BASELINES: dict[str, ModelSpec] = {
     "grpo-traces": ModelSpec(
         "grpo-traces", "models/qwen-0.5b-grpo-traces", base=BASE_MODEL, chat=True
     ),
+    # Phase 4: the identical SFT recipe on a 3x larger, code-pretrained base.
+    # Same data, epochs, learning rate, LoRA rank and targets as sft-spider;
+    # only the base model differs, so the gap over 44.6% is what capacity and
+    # code pretraining buy.
+    "sft-coder15": ModelSpec(
+        "sft-coder15", "models/qwen-coder-1.5b-sft-spider", base=CODER_1_5B, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
