@@ -104,6 +104,15 @@ BASELINES: dict[str, ModelSpec] = {
     "sft-traces": ModelSpec(
         "sft-traces", "models/qwen-0.5b-sft-traces", base=BASE_MODEL, chat=True
     ),
+    # 2 epochs of traces scored 41.8%, below the canned-sentence run's 44.6%,
+    # and the measured suspect is gradient dilution: completion-only loss spends
+    # 15.9% of its budget on the SQL here against 53.7% before. More epochs buy
+    # back the absolute amount of SQL training. If this clears 44.6% the traces
+    # work and simply cost more; if it stalls near 42%, dilution is not the
+    # story and capacity is.
+    "sft-traces-4ep": ModelSpec(
+        "sft-traces-4ep", "models/qwen-0.5b-sft-traces-4ep", base=BASE_MODEL, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
