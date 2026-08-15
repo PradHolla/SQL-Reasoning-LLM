@@ -91,6 +91,19 @@ BASELINES: dict[str, ModelSpec] = {
     "grpo-spider": ModelSpec(
         "grpo-spider", "models/qwen-0.5b-grpo-spider", base=BASE_MODEL, chat=True
     ),
+    # Phase 3: SFT on 4,823 execution-verified teacher traces instead of one
+    # hardcoded sentence. The bar is sft-spider's 44.6% *before any RL* -- if
+    # real reasoning helps a 0.5B model at all, it has to show up here.
+    #
+    # Evaluate this one with --max-new-tokens 640, not the 384 default: its
+    # completions are trained to run to 485 tokens, and a budget that cuts the
+    # reasoning off before it reaches <answer> would score the model wrong for a
+    # reason that has nothing to do with SQL. The comparison stays fair because
+    # sft-spider's completions are ~43 tokens, so its number was never
+    # budget-limited either way.
+    "sft-traces": ModelSpec(
+        "sft-traces", "models/qwen-0.5b-sft-traces", base=BASE_MODEL, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
