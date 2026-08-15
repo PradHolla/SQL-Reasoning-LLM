@@ -70,6 +70,11 @@ CHECKPOINTS = Path("outputs/grpo_spider")
 #: on our format would eat the schema and leave the question, producing rollouts
 #: that cannot succeed and a reward that quietly punishes the model for it.
 MAX_PROMPT_LENGTH = 512
+#: Sized for the checkpoint being trained, not fixed. The Phase 1.5 model
+#: emitted ~43-token answers so 320 was generous; the Phase 3 trace model is
+#: trained to produce up to 485 (p50 199, p99 398) and 320 would truncate
+#: most rollouts, then let the reward punish the model for reasoning at all.
+#: Pass --max-completion-length to match the checkpoint.
 MAX_COMPLETION_LENGTH = 320
 
 #: 8 completions per device step x 8 accumulation steps = 8 prompts and 64
@@ -226,6 +231,7 @@ def train(
     report_to: str = "wandb",
     adapter: Path = SFT_CHECKPOINT,
     output: Path = OUTPUT,
+    max_completion_length: int = MAX_COMPLETION_LENGTH,
 ) -> None:
     if not adapter.is_dir():
         raise FileNotFoundError(
@@ -293,7 +299,7 @@ def train(
     # nothing while reporting a perfectly normal-looking loss.
     model = PeftModel.from_pretrained(base, str(adapter), is_trainable=True)
     model.print_trainable_parameters()
-    check_stops(model, tokenizer, dataset, MAX_COMPLETION_LENGTH)
+    check_stops(model, tokenizer, dataset, max_completion_length)
 
     args = GRPOConfig(
         output_dir=str(CHECKPOINTS),
@@ -306,7 +312,7 @@ def train(
         gradient_accumulation_steps=grad_accum,
         num_generations=num_generations,
         max_prompt_length=MAX_PROMPT_LENGTH,
-        max_completion_length=MAX_COMPLETION_LENGTH,
+        max_completion_length=max_completion_length,
         # ------------------------------------------------------------------
         # The line this whole file turns on.
         #
@@ -437,6 +443,8 @@ def main() -> int:
     parser.add_argument("--report-to", default="wandb")
     parser.add_argument("--adapter", type=Path, default=SFT_CHECKPOINT)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--max-completion-length", type=int,
+                        default=MAX_COMPLETION_LENGTH)
     args = parser.parse_args()
 
     if args.inspect:
@@ -456,6 +464,7 @@ def main() -> int:
         report_to=args.report_to,
         adapter=args.adapter,
         output=args.output,
+        max_completion_length=args.max_completion_length,
     )
     return 0
 
