@@ -113,6 +113,12 @@ BASELINES: dict[str, ModelSpec] = {
     "sft-traces-4ep": ModelSpec(
         "sft-traces-4ep", "models/qwen-0.5b-sft-traces-4ep", base=BASE_MODEL, chat=True
     ),
+    # Phase 3 + Phase 2 stacked: GRPO from the trace-trained checkpoint. Phase 2
+    # bought +5.1 points on a 44.6% base; the question is whether that gain
+    # survives on a 47.1% base or gets absorbed. Also needs --max-new-tokens 640.
+    "grpo-traces": ModelSpec(
+        "grpo-traces", "models/qwen-0.5b-grpo-traces", base=BASE_MODEL, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
