@@ -46,6 +46,11 @@ from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
+from sqlrl.training.checkpoints import (
+    S3CheckpointSync,
+    resume_from,
+    wandb_resumable,
+)
 from sqlrl.tokenizer import (
     BASE_EOS,
     CHAT_EOS,
@@ -196,15 +201,21 @@ def train(
     data: Path = SFT_DATA,
     val_data: Path = VAL_DATA,
     base_model: str = BASE_MODEL,
+    resume: bool = False,
+    run_name: str = "sft_spider",
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
     # the next evaluation scores it happily and reports a real-looking number
     # for a model that was never trained. This already happened once, with a
     # 5-step smoke checkpoint.
-    if output.exists():
+    if output.exists() and not resume:
         print(f"removing previous checkpoint at {output}")
         shutil.rmtree(output)
+
+    wandb_resumable(run_name)
+    checkpoints = CHECKPOINTS / run_name
+    resume_target = resume_from(checkpoints, run_name, resume)
 
     tokenizer = build_tokenizer(base_model, chat=True)
     print(f"base model: {base_model}")
@@ -228,7 +239,7 @@ def train(
     model.print_trainable_parameters()
 
     args = SFTConfig(
-        output_dir=str(CHECKPOINTS),
+        output_dir=str(checkpoints),
         num_train_epochs=epochs,
         max_steps=max_steps,
         learning_rate=learning_rate,
@@ -247,8 +258,11 @@ def train(
         logging_steps=10,
         eval_strategy="epoch",
         per_device_eval_batch_size=batch_size,
-        save_strategy="epoch",
-        save_total_limit=2,
+        # Every 50 steps, not every epoch: an epoch here is ~20 minutes, and a
+        # spot reclaim gives two.
+        save_strategy="steps",
+        save_steps=50,
+        save_total_limit=3,
         seed=seed,
         report_to=report_to,
         optim="adamw_torch",
@@ -261,8 +275,9 @@ def train(
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         args=args,
+        callbacks=[S3CheckpointSync(checkpoints, run_name)],
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_target)
 
     # Ask the weights, not the config. Two epochs of loss on <|im_end|> produced
     # a model that emits it never, and nothing in this script noticed -- the run
@@ -302,6 +317,10 @@ def main() -> int:
     parser.add_argument("--data", type=Path, default=SFT_DATA,
                         help="training jsonl; point at spider_sft_traces.jsonl for Phase 3")
     parser.add_argument("--val-data", type=Path, default=VAL_DATA)
+    parser.add_argument("--resume", action="store_true",
+                        help="continue an interrupted run from its last checkpoint")
+    parser.add_argument("--run-name", default="sft_spider",
+                        help="names the S3 checkpoint prefix and the W&B run id")
     parser.add_argument("--base-model", default=BASE_MODEL,
                         help="run sqlrl.base_report on any new base first")
     args = parser.parse_args()
@@ -324,6 +343,8 @@ def main() -> int:
         data=args.data,
         val_data=args.val_data,
         base_model=args.base_model,
+        resume=args.resume,
+        run_name=args.run_name,
     )
     return 0
 

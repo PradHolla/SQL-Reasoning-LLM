@@ -54,6 +54,11 @@ from transformers import AutoModelForCausalLM, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 
 from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_model_stops, build_tokenizer
+from sqlrl.training.checkpoints import (
+    S3CheckpointSync,
+    resume_from,
+    wandb_resumable,
+)
 from sqlrl.training.rewards import SQLReward, drop_empty_gold
 
 __all__ = ["train"]
@@ -233,6 +238,8 @@ def train(
     output: Path = OUTPUT,
     max_completion_length: int = MAX_COMPLETION_LENGTH,
     base_model: str = BASE_MODEL,
+    resume: bool = False,
+    run_name: str = "grpo_spider",
 ) -> None:
     if not adapter.is_dir():
         raise FileNotFoundError(
@@ -244,9 +251,13 @@ def train(
     # behind is worse than one that leaves nothing: the evaluator scores it
     # happily and reports a real-looking number for a model that was never
     # trained. This has already happened once, with a 5-step smoke checkpoint.
-    if output.exists():
+    if output.exists() and not resume:
         print(f"removing previous checkpoint at {output}")
         shutil.rmtree(output)
+
+    wandb_resumable(run_name)
+    checkpoints = CHECKPOINTS / run_name
+    resume_target = resume_from(checkpoints, run_name, resume)
 
     rows = load_rows(GRPO_DATA, limit)
     dataset = build_dataset(rows)
@@ -304,7 +315,7 @@ def train(
     check_stops(model, tokenizer, dataset, max_completion_length)
 
     args = GRPOConfig(
-        output_dir=str(CHECKPOINTS),
+        output_dir=str(checkpoints),
         num_train_epochs=epochs,
         max_steps=steps,
         learning_rate=learning_rate,
@@ -388,9 +399,9 @@ def train(
         reward_funcs=[reward],
         args=args,
         train_dataset=dataset,
-        callbacks=[RewardOutcomes(reward)],
+        callbacks=[RewardOutcomes(reward), S3CheckpointSync(checkpoints, run_name)],
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_target)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(output))
@@ -447,6 +458,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--max-completion-length", type=int,
                         default=MAX_COMPLETION_LENGTH)
+    parser.add_argument("--resume", action="store_true",
+                        help="continue an interrupted run from its last checkpoint")
+    parser.add_argument("--run-name", default="grpo_spider",
+                        help="names the S3 checkpoint prefix and the W&B run id")
     parser.add_argument("--base-model", default=BASE_MODEL,
                         help="must match the base the adapter was trained on")
     args = parser.parse_args()
@@ -470,6 +485,8 @@ def main() -> int:
         output=args.output,
         max_completion_length=args.max_completion_length,
         base_model=args.base_model,
+        resume=args.resume,
+        run_name=args.run_name,
     )
     return 0
 
