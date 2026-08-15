@@ -240,6 +240,7 @@ def train(
     base_model: str = BASE_MODEL,
     resume: bool = False,
     run_name: str = "grpo_spider",
+    gradient_checkpointing: bool = True,
 ) -> None:
     if not adapter.is_dir():
         raise FileNotFoundError(
@@ -374,6 +375,17 @@ def train(
         save_total_limit=3,
         seed=seed,
         report_to=report_to,
+        # Recomputes activations instead of storing them: identical maths,
+        # ~30%% slower, and the difference between fitting and not. Measured on
+        # Qwen2.5-Coder-1.5B with a full batch of the longest example (1,740
+        # tokens): 17.3 GB of 22.1 with it, hard OOM without.
+        #
+        # Default on. It costs speed on models that do not need it and prevents
+        # a class of failure on models that do, and the failure mode is an OOM
+        # 20 minutes into a run rather than at step 1 -- a --limit smoke test
+        # samples short examples and sails straight past it, which is exactly
+        # how this bit Phase 1.5.
+        gradient_checkpointing=gradient_checkpointing,
         optim="adamw_torch",
         log_completions=True,
         num_completions_to_print=2,
@@ -458,6 +470,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--max-completion-length", type=int,
                         default=MAX_COMPLETION_LENGTH)
+    parser.add_argument("--no-gradient-checkpointing", dest="gradient_checkpointing",
+                        action="store_false",
+                        help="faster, but OOMs at >=1.5B with long examples")
     parser.add_argument("--resume", action="store_true",
                         help="continue an interrupted run from its last checkpoint")
     parser.add_argument("--run-name", default="grpo_spider",
@@ -487,6 +502,7 @@ def main() -> int:
         base_model=args.base_model,
         resume=args.resume,
         run_name=args.run_name,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
     return 0
 

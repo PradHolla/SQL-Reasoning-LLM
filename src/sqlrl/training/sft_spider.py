@@ -203,6 +203,7 @@ def train(
     base_model: str = BASE_MODEL,
     resume: bool = False,
     run_name: str = "sft_spider",
+    gradient_checkpointing: bool = True,
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
@@ -265,6 +266,17 @@ def train(
         save_total_limit=3,
         seed=seed,
         report_to=report_to,
+        # Recomputes activations instead of storing them: identical maths,
+        # ~30%% slower, and the difference between fitting and not. Measured on
+        # Qwen2.5-Coder-1.5B with a full batch of the longest example (1,740
+        # tokens): 17.3 GB of 22.1 with it, hard OOM without.
+        #
+        # Default on. It costs speed on models that do not need it and prevents
+        # a class of failure on models that do, and the failure mode is an OOM
+        # 20 minutes into a run rather than at step 1 -- a --limit smoke test
+        # samples short examples and sails straight past it, which is exactly
+        # how this bit Phase 1.5.
+        gradient_checkpointing=gradient_checkpointing,
         optim="adamw_torch",
         weight_decay=0.01,
     )
@@ -317,6 +329,9 @@ def main() -> int:
     parser.add_argument("--data", type=Path, default=SFT_DATA,
                         help="training jsonl; point at spider_sft_traces.jsonl for Phase 3")
     parser.add_argument("--val-data", type=Path, default=VAL_DATA)
+    parser.add_argument("--no-gradient-checkpointing", dest="gradient_checkpointing",
+                        action="store_false",
+                        help="faster, but OOMs at >=1.5B with long examples")
     parser.add_argument("--resume", action="store_true",
                         help="continue an interrupted run from its last checkpoint")
     parser.add_argument("--run-name", default="sft_spider",
@@ -345,6 +360,7 @@ def main() -> int:
         base_model=args.base_model,
         resume=args.resume,
         run_name=args.run_name,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
     return 0
 
