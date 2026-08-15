@@ -185,6 +185,8 @@ def train(
     seed: int = 3407,
     report_to: str = "wandb",
     output: Path = OUTPUT,
+    data: Path = SFT_DATA,
+    val_data: Path = VAL_DATA,
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
@@ -196,8 +198,9 @@ def train(
         shutil.rmtree(output)
 
     tokenizer = build_tokenizer(BASE_MODEL, chat=True)
-    train_dataset = load_split(SFT_DATA, tokenizer, limit)
-    eval_dataset = load_split(VAL_DATA, tokenizer, limit)
+    train_dataset = load_split(data, tokenizer, limit)
+    eval_dataset = load_split(val_data, tokenizer, limit)
+    print(f"train from {data}\nval   from {val_data}")
     print(f"train {len(train_dataset)} | val {len(eval_dataset)}")
 
     model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, dtype=torch.bfloat16)
@@ -260,7 +263,7 @@ def train(
         tokenizer.apply_chat_template(
             row["messages"][:-1], tokenize=False, add_generation_prompt=True
         )
-        for row in load_dataset("json", data_files=str(VAL_DATA), split="train").select(range(4))
+        for row in load_dataset("json", data_files=str(val_data), split="train").select(range(4))
     ]
     lengths = assert_model_stops(model, tokenizer, prompts, max_new_tokens=320)
     print(f"stop check: completions terminate in {lengths} tokens, "
@@ -286,11 +289,14 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--report-to", default="wandb")
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--data", type=Path, default=SFT_DATA,
+                        help="training jsonl; point at spider_sft_traces.jsonl for Phase 3")
+    parser.add_argument("--val-data", type=Path, default=VAL_DATA)
     args = parser.parse_args()
 
     if args.inspect:
         tokenizer = build_tokenizer(BASE_MODEL, chat=True)
-        inspect(tokenizer, load_split(SFT_DATA, tokenizer, limit=4))
+        inspect(tokenizer, load_split(args.data, tokenizer, limit=4))
         return 0
 
     train(
@@ -303,6 +309,8 @@ def main() -> int:
         seed=args.seed,
         report_to=args.report_to,
         output=args.output,
+        data=args.data,
+        val_data=args.val_data,
     )
     return 0
 
