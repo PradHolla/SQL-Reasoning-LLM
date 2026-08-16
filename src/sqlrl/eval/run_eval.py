@@ -136,6 +136,17 @@ BASELINES: dict[str, ModelSpec] = {
     "grpo-coder15": ModelSpec(
         "grpo-coder15", "models/qwen-coder-1.5b-grpo-spider", base=CODER_1_5B, chat=True
     ),
+    # Phase 4 task 5, the ablation the whole phase exists for: v0's SFT recipe
+    # on the *same* 1.5B base. Pruned-schema data, 500 steps, lr 2e-5, loss over
+    # the full sequence. Against sft-coder15's 67.9%, the gap is what the method
+    # contributes once parameter count is held fixed.
+    #
+    # Deliberately generous to v0: CPT omitted (measured destructive), Unsloth
+    # omitted (corrupted the vocabulary), and the working stop token used. This
+    # is the strongest fair version of v0, not v0 at its worst.
+    "v0-coder15": ModelSpec(
+        "v0-coder15", "models/qwen-coder-1.5b-v0style", base=CODER_1_5B, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
