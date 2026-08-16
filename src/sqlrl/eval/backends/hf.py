@@ -39,7 +39,14 @@ from sqlrl.eval.backends import Backend
 from sqlrl.eval.prompts import Prompt
 from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_stops_within, build_tokenizer
 
-__all__ = ["HFBackend", "batched_in_order", "pick_device"]
+__all__ = ["MAX_INPUT_TOKENS", "HFBackend", "batched_in_order", "pick_device"]
+
+#: Hard ceiling on the rendered prompt. Single-turn Spider prompts top out at 610
+#: tokens, so this has never bound anything -- but the retry loop appends the
+#: failed query and the database's error on every round, which grows the prompt
+#: toward it. Exceeding it is treated as an error rather than silently truncated;
+#: see ``_check_fits``.
+MAX_INPUT_TOKENS = 2048
 
 
 def batched_in_order(
@@ -119,6 +126,12 @@ class HFBackend(Backend):
         self.tokenizer = build_tokenizer(model_path, chat=chat)
         # Decoder-only generation must pad on the left. See module docstring.
         self.tokenizer.padding_side = "left"
+        # And truncate on the left too. The default is the right, which on a
+        # ChatML prompt deletes the question and the generation prompt while
+        # keeping the schema -- the model is then scored for not answering a
+        # question it was never shown. ``_check_fits`` means this should never
+        # fire; it is set anyway so the fallback is the less destructive one.
+        self.tokenizer.truncation_side = "left"
 
         # Stop on any end-of-turn token this vocabulary has, not just the one
         # nominated as eos. A base model given a ChatML prompt may end its turn
@@ -156,9 +169,30 @@ class HFBackend(Backend):
             prompt.messages, tokenize=False, add_generation_prompt=True
         )
 
+    def _check_fits(self, rendered: list[str]) -> None:
+        """Refuse to generate from a prompt that would be silently truncated.
+
+        Checked up front, over every prompt, rather than per batch: a truncation
+        that surfaces twenty minutes into a run has already spent the GPU time,
+        and one that never surfaces at all produces a number that is wrong for a
+        reason nothing in the output would reveal.
+        """
+        lengths = [len(self.tokenizer(text)["input_ids"]) for text in rendered]
+        longest = max(lengths, default=0)
+        if longest > MAX_INPUT_TOKENS:
+            over = sum(length > MAX_INPUT_TOKENS for length in lengths)
+            raise ValueError(
+                f"{over} of {len(rendered)} prompts exceed MAX_INPUT_TOKENS "
+                f"({longest} > {MAX_INPUT_TOKENS}). Truncating them would drop "
+                f"part of the prompt and score the model for it. Shorten the "
+                f"schema, lower --max-new-tokens, or raise the ceiling knowing "
+                f"what it costs in memory."
+            )
+
     @torch.inference_mode()
     def generate(self, prompts: list[Prompt], max_new_tokens: int = 512) -> list[str]:
         rendered = [self.render(prompt) for prompt in prompts]
+        self._check_fits(rendered)
         return batched_in_order(
             rendered,
             self.batch_size,
@@ -167,7 +201,8 @@ class HFBackend(Backend):
 
     def _generate_batch(self, texts: list[str], max_new_tokens: int) -> list[str]:
         batch = self.tokenizer(
-            texts, return_tensors="pt", padding=True, truncation=True, max_length=2048
+            texts, return_tensors="pt", padding=True,
+            truncation=True, max_length=MAX_INPUT_TOKENS,
         ).to(self.device)
 
         output = self.model.generate(
