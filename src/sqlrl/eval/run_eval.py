@@ -129,6 +129,13 @@ BASELINES: dict[str, ModelSpec] = {
     "sft-coder15": ModelSpec(
         "sft-coder15", "models/qwen-coder-1.5b-sft-spider", base=CODER_1_5B, chat=True
     ),
+    # Phase 4 task 4: the Phase 2 reward, unchanged, on the 1.5B base. Run at
+    # the identical config on purpose -- retuning num_generations for this
+    # policy would answer a different question than "what does the method
+    # contribute independent of scale".
+    "grpo-coder15": ModelSpec(
+        "grpo-coder15", "models/qwen-coder-1.5b-grpo-spider", base=CODER_1_5B, chat=True
+    ),
 }
 
 #: Diagnostics, opt-in by name. These fill in the other two cells of the CPT
