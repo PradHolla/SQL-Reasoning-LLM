@@ -71,6 +71,20 @@ def test_feedback_leaves_unprefixed_error_alone():
     assert "no such column: T1.name" in text
 
 
+def test_feedback_caps_the_quoted_query():
+    # A hallucinated join chain quoted back in full is what pushes a round-3
+    # multiturn prompt over the backend's input ceiling, and it teaches the
+    # model nothing anyway.
+    from sqlrl.eval.retry import MAX_QUOTED_SQL
+
+    long_sql = "SELECT " + ", ".join(f"col{i}" for i in range(500))
+    assert len(long_sql) > MAX_QUOTED_SQL
+    text = feedback(long_sql, "OperationalError: no such column: col0")
+    assert long_sql not in text
+    assert long_sql[:MAX_QUOTED_SQL] in text
+    assert "..." in text
+
+
 def test_feedback_reports_no_sql_found():
     text = feedback("", "irrelevant")
     assert "no sql query was found" in text.lower()

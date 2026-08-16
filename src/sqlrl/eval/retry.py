@@ -65,6 +65,14 @@ _NO_SQL_FEEDBACK = (
     "<answer></answer> tags."
 )
 
+#: Longest failed query quoted back to the model. The longest gold query in all
+#: of Spider is 608 characters, so anything past this is model garbage -- a
+#: hallucinated 2,000-character join chain teaches nothing when echoed back, and
+#: quoting it in full is what pushes a round-3 multiturn prompt over the
+#: backend's input ceiling. Bounding it here keeps the worst case ~450 tokens
+#: below that ceiling instead of ~180 above it.
+MAX_QUOTED_SQL = 600
+
 
 @dataclass(frozen=True)
 class Attempt:
@@ -95,8 +103,9 @@ def feedback(sql: str, error: str | None) -> str:
         return _NO_SQL_FEEDBACK
 
     message = _EXC_PREFIX.sub("", error or "")
+    quoted = sql if len(sql) <= MAX_QUOTED_SQL else sql[:MAX_QUOTED_SQL] + " ..."
     return (
-        f"The query `{sql}` failed with a database error: {message}\n"
+        f"The query `{quoted}` failed with a database error: {message}\n"
         "Think step-by-step inside <think></think> tags about why it failed, "
         "then give the corrected query inside <answer></answer> tags."
     )

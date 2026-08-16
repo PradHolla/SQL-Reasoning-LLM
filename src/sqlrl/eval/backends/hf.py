@@ -41,12 +41,17 @@ from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_stops_within, build_token
 
 __all__ = ["MAX_INPUT_TOKENS", "HFBackend", "batched_in_order", "pick_device"]
 
-#: Hard ceiling on the rendered prompt. Single-turn Spider prompts top out at 610
-#: tokens, so this has never bound anything -- but the retry loop appends the
-#: failed query and the database's error on every round, which grows the prompt
-#: toward it. Exceeding it is treated as an error rather than silently truncated;
-#: see ``_check_fits``.
-MAX_INPUT_TOKENS = 2048
+#: Hard ceiling on the rendered prompt. Exceeding it is an error rather than a
+#: silent truncation -- see ``_check_fits``.
+#:
+#: Single-turn Spider prompts top out at 610 tokens, so the old hardcoded 2048
+#: never bound anything. The retry loop changes that: a multiturn round-3 prompt
+#: is the base prompt plus two (answer, feedback) pairs, so with
+#: ``--max-new-tokens 640`` the worst case is 610 + 2*(640 + 200) = 2,290 -- over
+#: the old ceiling, and it would have killed a run 15 minutes in. 3072 clears the
+#: worst case this project can generate with headroom. It costs KV cache, not the
+#: fp32 logits tensor that bounds *training* batch size, so it is cheap here.
+MAX_INPUT_TOKENS = 3072
 
 
 def batched_in_order(
