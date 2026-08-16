@@ -204,6 +204,7 @@ def train(
     resume: bool = False,
     run_name: str = "sft_spider",
     gradient_checkpointing: bool = True,
+    completion_only_loss: bool = True,
 ) -> None:
     # Clear any previous checkpoint before training, not after. A crashed run
     # that leaves a stale adapter behind is worse than one that leaves nothing:
@@ -251,8 +252,10 @@ def train(
         bf16=torch.cuda.is_available(),
         max_length=MAX_LENGTH,
         packing=False,
-        # The whole point of the prompt/completion split above.
-        completion_only_loss=True,
+        # The whole point of the prompt/completion split above. Settable only
+        # so the Phase 4 ablation can reproduce v0's full-sequence loss on a
+        # modern base; nothing else should turn it off.
+        completion_only_loss=completion_only_loss,
         # Overrides the tokenizer's <|im_end|>, which this base model cannot
         # learn to emit. See TRAIN_EOS.
         eos_token=TRAIN_EOS,
@@ -329,6 +332,10 @@ def main() -> int:
     parser.add_argument("--data", type=Path, default=SFT_DATA,
                         help="training jsonl; point at spider_sft_traces.jsonl for Phase 3")
     parser.add_argument("--val-data", type=Path, default=VAL_DATA)
+    parser.add_argument("--full-sequence-loss", dest="completion_only_loss",
+                        action="store_false",
+                        help="v0 ablation only: compute loss over prompt+answer, "
+                             "which spends most of the gradient teaching schema generation")
     parser.add_argument("--no-gradient-checkpointing", dest="gradient_checkpointing",
                         action="store_false",
                         help="faster, but OOMs at >=1.5B with long examples")
@@ -361,6 +368,7 @@ def main() -> int:
         resume=args.resume,
         run_name=args.run_name,
         gradient_checkpointing=args.gradient_checkpointing,
+        completion_only_loss=args.completion_only_loss,
     )
     return 0
 
