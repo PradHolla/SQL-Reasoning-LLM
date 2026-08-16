@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlrl.eval.executor import read_schema
+from sqlrl.eval.executor import read_schema, requires_order, run
 from sqlrl.eval.metrics import Report, aggregate, format_report, score_example
 from sqlrl.eval.prompts import chat_prompt, cpt_prompt, extract_sql, render_schema
 from sqlrl.eval.retry import (
@@ -37,6 +37,7 @@ from sqlrl.eval.retry import (
     run_retry,
 )
 from sqlrl.eval.spider import SPLITS, Example, load_split
+from sqlrl.eval.voting import Ballot, Candidate, cluster_stats, oracle_at, vote_at
 
 __all__ = ["MODELS", "ModelSpec", "main"]
 
@@ -274,6 +275,65 @@ class RetryRecord:
         )
 
 
+@dataclass
+class VoteRecord:
+    """One execution-voting run: a ``Ballot`` per example plus the same
+    provenance as ``RunRecord``, so a vote run is reproducible the same way a
+    plain one is.
+    """
+
+    model: str
+    split: str
+    n: int
+    device: str
+    dtype: str
+    max_new_tokens: int
+    decoding: str
+    seed: int
+    git_commit: str
+    generated_at: str
+    generation_seconds: float
+    samples: int
+    temperature: float
+    top_p: float
+    ballots: list[Ballot] = field(default_factory=list)
+
+    def at_k(self, k: int, *, demote_empty: bool = True) -> RunRecord:
+        """Collapse every ballot to its vote@k winner, as a plain ``RunRecord``.
+
+        Same reuse principle as ``RetryRecord.at_attempt``: every k is scored
+        by the existing ``score()``/``aggregate()`` path, so there is no
+        second metric implementation for voting.
+        """
+        predictions = []
+        for ballot in self.ballots:
+            winner = vote_at(ballot, k, demote_empty=demote_empty)
+            predictions.append(
+                Prediction(
+                    index=ballot.index,
+                    db_id=ballot.db_id,
+                    question=ballot.question,
+                    gold_sql=ballot.gold_sql,
+                    raw=winner.raw,
+                    pred_sql=winner.sql,
+                )
+            )
+        return RunRecord(
+            model=self.model,
+            split=self.split,
+            n=self.n,
+            device=self.device,
+            dtype=self.dtype,
+            max_new_tokens=self.max_new_tokens,
+            decoding=self.decoding,
+            seed=self.seed,
+            git_commit=self.git_commit,
+            generated_at=self.generated_at,
+            generation_seconds=self.generation_seconds,
+            predictions=predictions,
+        )
+
+
 def _git_commit() -> str:
     try:
         return subprocess.run(
@@ -447,6 +507,105 @@ def generate_retry(
     )
 
 
+def generate_votes(
+    spec: ModelSpec,
+    examples: list[Example],
+    *,
+    batch_size: int,
+    max_new_tokens: int,
+    device: str | None,
+    seed: int,
+    samples: int,
+    temperature: float,
+    top_p: float,
+    timeout: float,
+) -> VoteRecord:
+    """Like ``generate``, but generating ``samples`` candidates per example and
+    keeping every one of them for voting.
+
+    Unlike retry, voting works with either prompt style -- there is no need
+    for the chat-only guard ``generate_retry`` has, since a vote never appends
+    a turn onto the prompt.
+
+    ``candidates[0]`` is always the greedy sample (from ``backend.generate``),
+    everything after it is sampled (from ``backend.sample``) -- that ordering
+    is what lets ``vote_at(ballot, 1)`` reproduce the plain greedy score
+    exactly. The sampling call is skipped entirely when ``samples == 1``, so
+    that path costs nothing beyond the greedy pass already being made.
+    """
+    # Imported here so --score-only never pays for torch.
+    from sqlrl.eval.backends.hf import HFBackend
+
+    backend = HFBackend(
+        spec.path,
+        name=spec.name,
+        base_model=spec.base,
+        chat=spec.chat,
+        device=device,
+        batch_size=batch_size,
+        seed=seed,
+    )
+    print(f"  loaded on {backend.device} ({backend.dtype}), "
+          f"stops on {backend.stop_ids}, prompt={spec.prompt_style}")
+
+    prompts = build_prompts(examples, spec.prompt_style)
+
+    started = time.perf_counter()
+    greedy_raws = backend.generate(prompts, max_new_tokens=max_new_tokens)
+    print(f"  greedy pass: generated {len(greedy_raws)}")
+
+    if samples > 1:
+        sampled_raws = backend.sample(
+            prompts, n=samples - 1, temperature=temperature, top_p=top_p,
+            max_new_tokens=max_new_tokens,
+        )
+        print(f"  sampling pass: generated {samples - 1} per prompt "
+              f"({(samples - 1) * len(prompts)} total)")
+    else:
+        sampled_raws = [[] for _ in prompts]
+    elapsed = time.perf_counter() - started
+    print(f"  generated {samples} candidates each for {len(examples)} examples "
+          f"in {elapsed / 60:.1f} min")
+
+    ballots = []
+    for index, (example, greedy_raw, extra_raws) in enumerate(
+        zip(examples, greedy_raws, sampled_raws)
+    ):
+        # Executed here so the run can be scored immediately; the rows are
+        # dropped again by save_votes and recomputed by hydrate_votes on load.
+        candidates = [
+            _execute_candidate(raw, extract_sql(raw), example.db_path, timeout)
+            for raw in (greedy_raw, *extra_raws)
+        ]
+        ballots.append(
+            Ballot(
+                index=index,
+                db_id=example.db_id,
+                question=example.question,
+                gold_sql=example.gold_sql,
+                candidates=candidates,
+            )
+        )
+
+    return VoteRecord(
+        model=spec.name,
+        split="",  # filled by the caller, which knows the split
+        n=len(examples),
+        device=backend.device,
+        dtype=str(backend.dtype),
+        max_new_tokens=max_new_tokens,
+        decoding=f"greedy+{samples - 1}@T{temperature}",
+        seed=seed,
+        git_commit=_git_commit(),
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        generation_seconds=round(elapsed, 1),
+        samples=samples,
+        temperature=temperature,
+        top_p=top_p,
+        ballots=ballots,
+    )
+
+
 def save(record: RunRecord, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(record), indent=1))
@@ -472,6 +631,75 @@ def load_retry(path: Path) -> RetryRecord:
         attempts = [Attempt(**a) for a in trace.pop("attempts")]
         traces.append(Trace(**trace, attempts=attempts))
     return RetryRecord(**raw, traces=traces)
+
+
+def save_votes(record: VoteRecord, path: Path) -> None:
+    """Persist a vote run *without* the result rows -- see ``hydrate_votes``."""
+    payload = asdict(record)
+    for ballot in payload["ballots"]:
+        for candidate in ballot["candidates"]:
+            candidate.pop("rows")
+            candidate.pop("status")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=1))
+    print(f"  wrote {path}")
+
+
+def load_votes(path: Path) -> VoteRecord:
+    """Read a vote run back. Candidates come back *unhydrated* -- rows empty
+    and status ``"unknown"`` -- so the caller must run ``hydrate_votes`` before
+    scoring. Loading and hydrating are separate so ``--score-only`` fails loudly
+    if the databases are missing rather than silently voting on empty rows.
+    """
+    raw = json.loads(path.read_text())
+    ballots = []
+    for ballot in raw.pop("ballots"):
+        candidates = [
+            Candidate(raw=c["raw"], sql=c["sql"], status="unknown", rows=[])
+            for c in ballot.pop("candidates")
+        ]
+        ballots.append(Ballot(**ballot, candidates=candidates))
+    return VoteRecord(**raw, ballots=ballots)
+
+
+def hydrate_votes(record: VoteRecord, examples: list[Example], timeout: float) -> None:
+    """Re-run every candidate's SQL to fill in its status and rows, in place.
+
+    **Rows are deliberately not persisted.** A single Spider query legitimately
+    returns 26,112 rows, and the greedy pass alone produces 268,891 cells across
+    the test split -- roughly 26 MB of JSON once multiplied by 8 candidates, per
+    run, in a repo whose ``results/`` is already 74 MB. Re-executing costs about
+    40 seconds of CPU for 2,147x8 queries, which is the trade this project
+    already makes everywhere else: ``--score-only`` exists precisely because
+    re-deriving a number from source should be cheap.
+
+    It is also the more correct arrangement. The database is the single source
+    of truth for what a query returns; a cached copy in a results file is a
+    second one that can drift from it and would never announce that it had.
+    """
+    started = time.perf_counter()
+    for ballot in record.ballots:
+        example = examples[ballot.index]
+        assert example.question == ballot.question, (
+            f"ballot {ballot.index} does not line up with the benchmark; "
+            f"the saved run is stale, regenerate it"
+        )
+        ballot.candidates = [
+            _execute_candidate(candidate.raw, candidate.sql, example.db_path, timeout)
+            for candidate in ballot.candidates
+        ]
+    total = sum(len(b.candidates) for b in record.ballots)
+    print(f"  executed {total} candidates in {time.perf_counter() - started:.0f}s")
+
+
+def _execute_candidate(raw: str, sql: str, db_path: Path, timeout: float) -> Candidate:
+    """One candidate, executed. Rows are kept only for ``ok``: everything else
+    is excluded from clustering anyway (see ``voting.cluster``), and
+    ``too_many_rows`` in particular can carry 100,000 of them.
+    """
+    result = run(sql, db_path, timeout=timeout)
+    rows = [list(row) for row in result.rows] if result.status == "ok" else []
+    return Candidate(raw=raw, sql=sql, status=result.status, rows=rows)
 
 
 # --------------------------------------------------------------------------
@@ -530,6 +758,90 @@ def format_retry(record: RetryRecord, budgets: list[tuple[int, Report]]) -> str:
     return "\n".join(lines)
 
 
+def vote_budgets(samples: int) -> list[int]:
+    """Powers of two up to ``samples``, always ending on ``samples`` itself.
+
+    e.g. 8 -> [1, 2, 4, 8]; 5 -> [1, 2, 4, 5]; 1 -> [1]. One generation run
+    (``generate_votes``) yields every budget, so scoring all of them costs CPU
+    only, same as the retry budget curve.
+    """
+    ks: list[int] = []
+    k = 1
+    while k < samples:
+        ks.append(k)
+        k *= 2
+    ks.append(samples)
+    return ks
+
+
+def oracle_rate(ballots: list[Ballot], examples: list[Example], k: int, timeout: float) -> float:
+    """pass@k over ``ballots`` -- the ceiling vote@k is measured against.
+
+    Same denominator as ``execution_accuracy``: only ballots whose gold query
+    itself executes are counted, so the two rates are directly comparable.
+    """
+    hits = scored = 0
+    for ballot in ballots:
+        example = examples[ballot.index]
+        gold = run(ballot.gold_sql, example.db_path, timeout=timeout)
+        if not gold.ok:
+            continue
+        scored += 1
+        if oracle_at(ballot, k, gold.rows, requires_order(ballot.gold_sql)):
+            hits += 1
+    return hits / scored if scored else 0.0
+
+
+def cluster_means(ballots: list[Ballot], k: int) -> tuple[float, float]:
+    """Mean (distinct clusters, largest cluster size) over ``ballots`` at budget k."""
+    if not ballots:
+        return 0.0, 0.0
+    stats = [cluster_stats(ballot, k) for ballot in ballots]
+    n = len(stats)
+    return sum(s[0] for s in stats) / n, sum(s[1] for s in stats) / n
+
+
+def format_votes(
+    record: VoteRecord,
+    budgets: list[tuple[int, Report, float, float, float]],
+    no_demote_max: Report,
+) -> str:
+    """How the vote budget did against its own ceiling.
+
+    ``budgets`` is ``(k, vote@k report, pass@k oracle rate, mean cluster
+    count, mean largest-cluster size)`` per budget scored. The vote@max vs
+    pass@max line is the headline diagnostic: the gap is exactly how much
+    headroom a perfect selector could still close, which separates "voting
+    does not help" from "voting works, but the selection rule is the weak
+    link". ``no_demote_max`` is the ``demote_empty=False`` variant of the
+    largest budget, reported on its own line so the empty-cluster guard (see
+    ``voting.py``) is a measurement, not an assertion.
+    """
+    lines = [
+        f"  vote: greedy + {record.samples - 1} sampled @ T={record.temperature}, "
+        f"top_p={record.top_p}"
+    ]
+    for k, report, pass_rate, mean_clusters, mean_largest in budgets:
+        lines.append(
+            f"    k={k:<3} vote@k EX {report.execution_accuracy:>7.1%}   "
+            f"pass@k (oracle) {pass_rate:>7.1%}   "
+            f"clusters {mean_clusters:>4.1f}   largest cluster {mean_largest:>4.1f}"
+        )
+    if budgets:
+        max_k, max_report, max_pass, _, _ = budgets[-1]
+        gap = max_pass - max_report.execution_accuracy
+        lines.append(
+            f"    vote@{max_k} {max_report.execution_accuracy:.1%}  vs  "
+            f"pass@{max_k} (oracle) {max_pass:.1%}   ({gap * 100:+.1f} pts of "
+            f"headroom a perfect selector would close)"
+        )
+        lines.append(
+            f"    vote@{max_k}, demote_empty=False: "
+            f"{no_demote_max.execution_accuracy:.1%}"
+        )
+    return "\n".join(lines)
+
+
 def comparison_table(rows: list[tuple[str, Report, Report]]) -> str:
     """The model x metric table. The deliverable of Phase 1."""
     header = (
@@ -571,6 +883,16 @@ def main() -> int:
     parser.add_argument("--retry-style", choices=STYLES, default="multiturn",
                         help="feedback shape for rounds after the first -- see "
                              "sqlrl.eval.retry")
+    parser.add_argument("--samples", type=int, default=1,
+                        help="execution-voting budget (greedy + samples-1 sampled "
+                             "candidates); 1 leaves generation and scoring on the "
+                             "pre-vote path untouched")
+    parser.add_argument("--temperature", type=float, default=0.8,
+                        help="sampling temperature for the samples-1 extra "
+                             "candidates in vote mode")
+    parser.add_argument("--top-p", type=float, default=0.95,
+                        help="nucleus sampling top-p for the samples-1 extra "
+                             "candidates in vote mode")
     args = parser.parse_args()
 
     if args.model == "all":
@@ -650,6 +972,62 @@ def main() -> int:
             print()
             continue
 
+        if args.samples > 1:
+            # Separate result file: a vote run is a different measurement from
+            # a plain one, over a different (larger) generation budget, and
+            # must never be confused with or overwrite it.
+            vote_path = out_dir / f"{name}-vote{args.samples}.json"
+
+            if args.score_only:
+                if not vote_path.is_file():
+                    print(f"  no saved predictions at {vote_path}, skipping\n")
+                    continue
+                vote_record = load_votes(vote_path)
+                # Rows are not persisted -- see hydrate_votes. A run straight
+                # from generate_votes already has them in memory.
+                hydrate_votes(vote_record, examples, args.timeout)
+            else:
+                vote_record = generate_votes(
+                    spec, examples,
+                    batch_size=args.batch_size,
+                    max_new_tokens=args.max_new_tokens,
+                    device=args.device,
+                    seed=args.seed,
+                    samples=args.samples,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    timeout=args.timeout,
+                )
+                vote_record.split = args.split
+                save_votes(vote_record, vote_path)
+
+            # Score every budget in the k-curve -- but only print the full
+            # report for the largest one, so the output stays readable.
+            ks = vote_budgets(args.samples)
+            vote_reports: list[tuple[int, Report, float, float, float]] = []
+            for k in ks:
+                full, clean = score(vote_record.at_k(k), examples, args.timeout)
+                pass_rate = oracle_rate(vote_record.ballots, examples, k, args.timeout)
+                mean_clusters, mean_largest = cluster_means(vote_record.ballots, k)
+                row_name = f"{name}#k{k}"
+                if k == ks[-1]:
+                    print()
+                    print(format_report(full, title=f"{row_name} — {args.split} (all {full.n})"))
+                    print()
+                    print(format_report(
+                        clean, title=f"{row_name} — {args.split} (uncontaminated only)"
+                    ))
+                    print()
+                vote_reports.append((k, full, pass_rate, mean_clusters, mean_largest))
+                rows.append((row_name, full, clean))
+
+            no_demote_full, _ = score(
+                vote_record.at_k(ks[-1], demote_empty=False), examples, args.timeout
+            )
+            print(format_votes(vote_record, vote_reports, no_demote_full))
+            print()
+            continue
+
         path = out_dir / f"{name}.json"
 
         if args.score_only:
@@ -677,9 +1055,12 @@ def main() -> int:
         rows.append((name, full, clean))
 
     if rows:
-        budget = "greedy, pass@1" if args.max_attempts == 1 else (
-            f"greedy, up to {args.max_attempts} attempts ({args.retry_style})"
-        )
+        if args.max_attempts > 1:
+            budget = f"greedy, up to {args.max_attempts} attempts ({args.retry_style})"
+        elif args.samples > 1:
+            budget = f"execution voting, {args.samples} samples"
+        else:
+            budget = "greedy, pass@1"
         print("=" * 60)
         print(f"Spider {args.split} — {budget}")
         print("=" * 60)
@@ -689,7 +1070,8 @@ def main() -> int:
         # single row -- which has already cost this project the table twice --
         # so anything narrower than the full sweep gets its own file.
         summary = out_dir / (
-            "summary.txt" if args.model == "all" and args.max_attempts == 1
+            "summary.txt"
+            if args.model == "all" and args.max_attempts == 1 and args.samples == 1
             else f"summary-{_slug(args)}.txt"
         )
         summary.write_text(comparison_table(rows) + "\n")
@@ -702,6 +1084,8 @@ def _slug(args: argparse.Namespace) -> str:
     stem = args.model.replace(",", "+")
     if args.max_attempts > 1:
         stem += f"-retry{args.max_attempts}-{args.retry_style}"
+    if args.samples > 1:
+        stem += f"-vote{args.samples}"
     return stem
 
 

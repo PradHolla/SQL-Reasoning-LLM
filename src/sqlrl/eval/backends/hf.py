@@ -29,7 +29,7 @@ Four decisions that would each produce a confidently wrong benchmark number:
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, TypeVar
 
 import torch
 from peft import PeftModel
@@ -40,6 +40,8 @@ from sqlrl.eval.prompts import Prompt
 from sqlrl.tokenizer import BASE_EOS, CHAT_EOS, assert_stops_within, build_tokenizer
 
 __all__ = ["MAX_INPUT_TOKENS", "HFBackend", "batched_in_order", "pick_device"]
+
+T = TypeVar("T")
 
 #: Hard ceiling on the rendered prompt. Exceeding it is an error rather than a
 #: silent truncation -- see ``_check_fits``.
@@ -57,17 +59,21 @@ MAX_INPUT_TOKENS = 3072
 def batched_in_order(
     items: list[str],
     batch_size: int,
-    run_batch: Callable[[list[str]], list[str]],
-) -> list[str]:
+    run_batch: Callable[[list[str]], list[T]],
+) -> list[T]:
     """Process in length-sorted batches, return results in the *original* order.
 
     Sorting by length keeps batches from being mostly padding, which is wasted
     compute. Getting the unsort wrong would silently pair every prediction with
     someone else's question, so this is separated out to be tested without
     loading a model.
+
+    Generic in the result type: greedy decoding returns one string per prompt,
+    sampling returns a tuple of ``n`` per prompt, and both need the same
+    length-sort-and-restore.
     """
     order = sorted(range(len(items)), key=lambda i: len(items[i]))
-    results: list[str] = [""] * len(items)
+    results: list[T] = [None] * len(items)  # type: ignore[list-item]
 
     for start in range(0, len(order), batch_size):
         indices = order[start : start + batch_size]
@@ -203,6 +209,77 @@ class HFBackend(Backend):
             self.batch_size,
             lambda texts: self._generate_batch(texts, max_new_tokens),
         )
+
+    @torch.inference_mode()
+    def sample(
+        self,
+        prompts: list[Prompt],
+        *,
+        n: int,
+        temperature: float = 0.8,
+        top_p: float = 0.95,
+        max_new_tokens: int = 512,
+    ) -> list[list[str]]:
+        """``n`` sampled completions per prompt, for execution voting.
+
+        ``do_sample=True`` is set explicitly alongside ``temperature``. v0's
+        ``inference.py`` passed ``temperature`` on its own, which transformers
+        silently ignores -- inference had been greedy the whole time while
+        reporting as sampled. That bug is the reason this is a separate method
+        from ``generate`` rather than a flag on it: the two decoding regimes
+        cannot be confused if they do not share a call site.
+
+        The batch is divided by ``n``, because ``num_return_sequences`` puts
+        ``batch_size * n`` sequences in flight at once and the KV cache is what
+        runs out first. At 1.5B with 16x8 that is ~19 GB of cache on a 24 GB
+        card, which OOMs after the weights; dividing keeps the in-flight count
+        at whatever ``--batch-size`` already proved safe.
+        """
+        rendered = [self.render(prompt) for prompt in prompts]
+        self._check_fits(rendered)
+        per_batch = max(1, self.batch_size // n)
+
+        flat = batched_in_order(
+            # One entry per (prompt, sample) so batched_in_order's length-sorted
+            # unshuffle keeps working; the run_batch below expands each prompt.
+            rendered,
+            per_batch,
+            lambda texts: self._sample_batch(texts, n, temperature, top_p, max_new_tokens),
+        )
+        return [list(group) for group in flat]
+
+    def _sample_batch(
+        self,
+        texts: list[str],
+        n: int,
+        temperature: float,
+        top_p: float,
+        max_new_tokens: int,
+    ) -> list[tuple[str, ...]]:
+        batch = self.tokenizer(
+            texts, return_tensors="pt", padding=True,
+            truncation=True, max_length=MAX_INPUT_TOKENS,
+        ).to(self.device)
+
+        output = self.model.generate(
+            **batch,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            num_return_sequences=n,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.stop_ids,
+        )
+
+        prompt_len = batch["input_ids"].shape[1]
+        decoded = self.tokenizer.batch_decode(
+            output[:, prompt_len:], skip_special_tokens=True
+        )
+        # generate returns rows grouped by input: prompt 0's n samples, then
+        # prompt 1's, and so on. Regrouping wrongly here would attribute one
+        # question's samples to another and corrupt every vote silently.
+        return [tuple(decoded[i * n : (i + 1) * n]) for i in range(len(texts))]
 
     def _generate_batch(self, texts: list[str], max_new_tokens: int) -> list[str]:
         batch = self.tokenizer(
