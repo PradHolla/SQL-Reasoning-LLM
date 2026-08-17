@@ -1,49 +1,101 @@
-import asyncio
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
-from openai import AsyncOpenAI
+"""FastAPI wrapper around ``SqlService``.
 
-app = FastAPI(title="SQL Reasoning Gateway")
+Replaces the old ``api.py``, which streamed from a vLLM server that was never
+running, at a model path that never existed, and never executed a single SQL
+query -- none of it worked. This one loads the same weights ``eval.run_eval``
+scores and actually runs the generated SQL.
 
-# Connect to your local vLLM instance running on port 8000
-client = AsyncOpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="not-needed" # vLLM does not require an API key
-)
+**Endpoints are sync ``def``, not ``async def``.** The model is one GPU-bound
+resource shared by every request; ``async`` would not make two ``generate``
+calls run any faster, it would only let two of them race for the same GPU at
+once. FastAPI already runs sync endpoints in a threadpool, which serialises
+naturally enough for a single-model service without inventing a queue.
 
-class SQLRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+**The service is built in the lifespan handler, not at import time.**
+Importing this module must never construct a model -- that is what lets
+``tests/test_serving.py`` import it, override the ``get_service`` dependency
+with a fake, and exercise every route on a laptop with no GPU and no
+checkpoint on disk.
+"""
 
-    db_schema: str = Field(alias="schema")
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, AsyncIterator
+
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+from sqlrl.serving.service import SqlService
+
+__all__ = ["app", "get_service"]
+
+#: Env vars read at startup, not at import time -- see the module docstring.
+DEFAULT_MODEL = "grpo-coder15"
+DEFAULT_DATABASES = Path("data/spider/spider_data/test_database")
+
+MIN_SAMPLES, MAX_SAMPLES = 1, 16
+MIN_ATTEMPTS, MAX_ATTEMPTS = 1, 5
+
+
+def _build_service() -> SqlService:
+    model = os.environ.get("SQLRL_MODEL", DEFAULT_MODEL)
+    databases = Path(os.environ.get("SQLRL_DATABASES", str(DEFAULT_DATABASES)))
+    return SqlService(model, databases=databases)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    app.state.service = _build_service()
+    yield
+
+
+app = FastAPI(title="SQL Reasoning Service", lifespan=_lifespan)
+
+
+def get_service() -> SqlService:
+    """The one model instance, built at startup. Overridden with a fake in
+    tests via ``app.dependency_overrides`` -- see ``tests/test_serving.py``.
+    """
+    return app.state.service
+
+
+class QueryRequest(BaseModel):
     question: str
+    db_id: str
+    samples: int = Field(default=1, ge=MIN_SAMPLES, le=MAX_SAMPLES)
+    max_attempts: int = Field(default=1, ge=MIN_ATTEMPTS, le=MAX_ATTEMPTS)
 
-@app.post("/generate-stream")
-async def generate_sql_stream(req: SQLRequest):
-    # 1. Enforce the exact system prompt and formatting from training
-    messages = [
-        {"role": "system", "content": "You are a database expert. You must think step-by-step inside <think></think> tags, and output ONLY the final SQL query inside <answer></answer> tags."},
-        {"role": "user", "content": f"Schema: {req.db_schema}\nQuestion: {req.question}"}
-    ]
 
-    # 2. Create an async generator to yield tokens as vLLM produces them
-    async def token_generator():
-        stream = await client.chat.completions.create(
-            model="models/qwen-0.5b-production-vllm",
-            messages=messages,
-            max_tokens=512,
-            temperature=0.6,
-            stream=True # This unlocks continuous streaming (SSE)
+@app.get("/health")
+def health(service: SqlService = Depends(get_service)) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "model": service.model_name,
+        "device": service.backend.device,
+        "databases": len(service.databases),
+    }
+
+
+@app.get("/databases")
+def databases(service: SqlService = Depends(get_service)) -> list[str]:
+    return service.databases
+
+
+@app.post("/query")
+def query(request: QueryRequest, service: SqlService = Depends(get_service)) -> dict[str, Any]:
+    if request.db_id not in service.databases:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown db_id {request.db_id!r}; valid ids: {service.databases}",
         )
-        async for chunk in stream:
-            # Check if the chunk contains text, then yield it
-            if chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
-
-    # 3. Return the streaming response to the client
-    return StreamingResponse(token_generator(), media_type="text/event-stream")
-
-if __name__ == "__main__":
-    import uvicorn
-    # We run this gateway on port 8080 so it doesn't clash with vLLM on 8000
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    answer = service.answer(
+        request.question,
+        request.db_id,
+        samples=request.samples,
+        max_attempts=request.max_attempts,
+    )
+    return asdict(answer)
