@@ -364,6 +364,97 @@ def build_prompts(examples: list[Example], style: str) -> list:
     return prompts
 
 
+#: Retrieval conditions, all measured over the SAME pooled question subset so
+#: the four numbers are comparable. ``gold`` is the control: it is exactly
+#: today's prompt (the whole correct database) but scored on the subset, which
+#: is the only thing the retrieval numbers can honestly be compared against.
+RETRIEVE_MODES = ("gold", "oracle", "bm25", "dense")
+
+
+def build_retrieval_prompts(
+    examples: list[Example],
+    style: str,
+    *,
+    mode: str,
+    top_k: int,
+    device: str | None = None,
+) -> list:
+    """Prompts whose schema comes from a retriever over a 300-table pool.
+
+    The four modes answer four different questions:
+
+    ``gold``    the whole correct database, i.e. what every score in this
+                project so far was measured with. The control.
+    ``oracle``  exactly the tables the gold query uses and nothing else.
+                Separates "retrieval is imperfect" from "a short schema is
+                different to work with" -- worth isolating, because Phase 1.5
+                measured that *training* on pruned schemas was actively
+                harmful, and this asks whether the same is true at inference.
+    ``bm25``    keyword retrieval, top k.
+    ``dense``   embedding retrieval, top k.
+
+    Retrieved tables are rendered with their real column types, from the
+    database they actually live in, so the prompt stays byte-compatible with
+    the shape the checkpoints were trained on.
+    """
+    from sqlrl.eval.retrieval import (
+        BM25,
+        Dense,
+        build_pool,
+        gold_tables,
+        render_pool_schema,
+    )
+
+    if mode not in RETRIEVE_MODES:
+        raise ValueError(f"retrieve must be one of {RETRIEVE_MODES}, got {mode!r}")
+
+    pool = build_pool()
+    by_key = {doc.key: doc for doc in pool}
+    # Real types, keyed the same way the pool is. read_schema is cached per
+    # database rather than per table -- 81 files, not 300 reads.
+    schemas = {
+        db_id: read_schema(path)
+        for db_id, path in {ex.db_id: ex.db_path for ex in examples}.items()
+    }
+    types = {
+        doc.key: schemas[doc.db_id].get(doc.table, {})
+        for doc in pool
+        if doc.db_id in schemas
+    }
+
+    if mode == "bm25":
+        retriever = BM25(pool)
+        hits = [retriever.search(ex.question, top_k) for ex in examples]
+    elif mode == "dense":
+        retriever = Dense(pool, device=device)
+        hits = retriever.search_many([ex.question for ex in examples], top_k)
+    else:
+        hits = None
+
+    prompts = []
+    for index, example in enumerate(examples):
+        if mode == "gold":
+            text = render_schema(schemas[example.db_id])
+        elif mode == "oracle":
+            keys = gold_tables(example.gold_sql, example.db_id)
+            docs = [by_key[k] for k in sorted(keys) if k in by_key]
+            # An unparseable gold query yields no tables. Falling back to the
+            # whole database is the conservative choice: rendering an empty
+            # schema would score the model for a prompt containing nothing.
+            text = (
+                render_pool_schema(docs, types) if docs
+                else render_schema(schemas[example.db_id])
+            )
+        else:
+            text = render_pool_schema([pool[i] for i in hits[index]], types)
+
+        prompts.append(
+            chat_prompt(text, example.question) if style == "chat"
+            else cpt_prompt(text, example.question)
+        )
+    return prompts
+
+
 def generate(
     spec: ModelSpec,
     examples: list[Example],
@@ -372,7 +463,15 @@ def generate(
     max_new_tokens: int,
     device: str | None,
     seed: int,
+    prompts: list | None = None,
 ) -> RunRecord:
+    """``prompts`` overrides the default one-schema-per-database construction.
+
+    Used by the retrieval conditions, which build the schema half of the prompt
+    from a retriever instead of from the example's own database. Everything
+    downstream -- decoding, extraction, scoring -- is deliberately identical, so
+    the retrieval numbers differ from the baseline in exactly one respect.
+    """
     # Imported here so --score-only never pays for torch.
     from sqlrl.eval.backends.hf import HFBackend
 
@@ -388,7 +487,8 @@ def generate(
     print(f"  loaded on {backend.device} ({backend.dtype}), "
           f"stops on {backend.stop_ids}, prompt={spec.prompt_style}")
 
-    prompts = build_prompts(examples, spec.prompt_style)
+    if prompts is None:
+        prompts = build_prompts(examples, spec.prompt_style)
     started = time.perf_counter()
     outputs = backend.generate(prompts, max_new_tokens=max_new_tokens)
     elapsed = time.perf_counter() - started
@@ -891,6 +991,13 @@ def main() -> int:
     parser.add_argument("--retry-style", choices=STYLES, default="multiturn",
                         help="feedback shape for rounds after the first -- see "
                              "sqlrl.eval.retry")
+    parser.add_argument("--retrieve", choices=RETRIEVE_MODES, default=None,
+                        help="build the schema from a retriever over a 300-table "
+                             "pool instead of handing over the correct database. "
+                             "Restricts the run to the pooled question subset; "
+                             "use --retrieve gold for the comparable baseline")
+    parser.add_argument("--top-k", type=int, default=10,
+                        help="tables to put in the prompt (bm25/dense only)")
     parser.add_argument("--samples", type=int, default=1,
                         help="execution-voting budget (greedy + samples-1 sampled "
                              "candidates); 1 leaves generation and scoring on the "
@@ -919,6 +1026,21 @@ def main() -> int:
         parser.error(f"unknown model(s): {unknown}. Choose from {list(MODELS)}")
 
     examples = load_split(args.split)
+
+    if args.retrieve:
+        # Every retrieval condition -- including the `gold` control -- is scored
+        # over the same pooled subset. Comparing a retrieval score against the
+        # full-split table would be comparing two different benchmarks and
+        # attributing the difference to retrieval.
+        from sqlrl.eval.retrieval import build_pool, pool_questions
+
+        pool = build_pool(args.split)
+        examples = pool_questions(examples, pool)
+        print(f"retrieval: {args.retrieve}, {len(pool)} tables in pool, "
+              f"top-{args.top_k} into the prompt")
+        print(f"  restricted to {len(examples)} pooled questions -- NOT "
+              f"comparable to the full-split table\n")
+
     if args.limit:
         examples = examples[: args.limit]
     contaminated = sum(example.contaminated for example in examples)
@@ -1036,7 +1158,13 @@ def main() -> int:
             print()
             continue
 
-        path = out_dir / f"{name}.json"
+        if args.retrieve:
+            suffix = args.retrieve + (
+                str(args.top_k) if args.retrieve in ("bm25", "dense") else ""
+            )
+            path = out_dir / f"{name}-retr-{suffix}.json"
+        else:
+            path = out_dir / f"{name}.json"
 
         if args.score_only:
             if not path.is_file():
@@ -1050,17 +1178,24 @@ def main() -> int:
                 max_new_tokens=args.max_new_tokens,
                 device=args.device,
                 seed=args.seed,
+                prompts=(
+                    build_retrieval_prompts(
+                        examples, spec.prompt_style,
+                        mode=args.retrieve, top_k=args.top_k, device=args.device,
+                    ) if args.retrieve else None
+                ),
             )
             record.split = args.split
             save(record, path)
 
+        display = f"{name}/{args.retrieve}" if args.retrieve else name
         full, clean = score(record, examples, args.timeout)
         print()
-        print(format_report(full, title=f"{name} — {args.split} (all {full.n})"))
+        print(format_report(full, title=f"{display} — {args.split} (all {full.n})"))
         print()
-        print(format_report(clean, title=f"{name} — {args.split} (uncontaminated only)"))
+        print(format_report(clean, title=f"{display} — {args.split} (uncontaminated only)"))
         print()
-        rows.append((name, full, clean))
+        rows.append((display, full, clean))
 
     if rows:
         if args.max_attempts > 1:
@@ -1094,6 +1229,10 @@ def _slug(args: argparse.Namespace) -> str:
         stem += f"-retry{args.max_attempts}-{args.retry_style}"
     if args.samples > 1:
         stem += f"-vote{args.samples}"
+    if args.retrieve:
+        stem += f"-retr-{args.retrieve}"
+        if args.retrieve in ("bm25", "dense"):
+            stem += str(args.top_k)
     return stem
 
 
