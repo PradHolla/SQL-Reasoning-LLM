@@ -1,0 +1,13 @@
+grpo-coder15, 100 Spider test questions (seed=3407), A10G, batch of one
+request at a time -- a service, not the batched eval harness.
+
+mode           n  accuracy   p50 ms   p95 ms   p99 ms  mean ms     q/s  sql tok
+-------------------------------------------------------------------------------
+greedy       100     69.0%     2794     5143     8590     3143    0.32     27.9
+vote8        100     70.0%     5865    10711    17755     6651    0.15     27.8
+retry3       100     70.0%     2866    11686    28140     3932    0.25     27.9
+
+Accuracy here is over 100 questions and cannot resolve the techniques' real
+gains (voting is +3.5 and retry +1.1 over the full 2,147). This run is for the
+latency columns; the accuracy column is a sanity check that the service agrees
+with the harness, and 69.0% against the harness's 68.1% says it does.
