@@ -259,6 +259,32 @@ def test_broken_gold_is_not_scoreable(db):
 
 
 # --------------------------------------------------------------------------
+# score_example: terminated
+# --------------------------------------------------------------------------
+
+
+def test_score_example_without_raw_leaves_terminated_unknown(db):
+    score = score_example("SELECT name FROM people", "SELECT name FROM people", db)
+    assert score.terminated is None
+
+
+def test_score_example_with_clean_raw_sets_terminated_true(db):
+    score = score_example(
+        "SELECT name FROM people", "SELECT name FROM people", db,
+        raw="<answer>SELECT name FROM people</answer>",
+    )
+    assert score.terminated is True
+
+
+def test_score_example_with_trailing_junk_raw_sets_terminated_false(db):
+    score = score_example(
+        "SELECT name FROM people", "SELECT name FROM people", db,
+        raw="<answer>SELECT name FROM people</answer> extra junk",
+    )
+    assert score.terminated is False
+
+
+# --------------------------------------------------------------------------
 # aggregate / format_report
 # --------------------------------------------------------------------------
 
@@ -327,6 +353,24 @@ def test_aggregate_of_nothing_does_not_divide_by_zero():
     assert report.execution_accuracy == 0.0
 
 
+def test_aggregate_stop_rate():
+    scores = [
+        make(terminated=True), make(terminated=True), make(terminated=False),
+        make(terminated=None),
+    ]
+    report = aggregate(scores)
+    # 2 of 3 known examples stopped cleanly; the unknown one is excluded from
+    # both the numerator and the denominator.
+    assert report.stop_known == 3
+    assert report.stop_rate == pytest.approx(2 / 3)
+
+
+def test_aggregate_stop_rate_unknown_when_nothing_is_known():
+    report = aggregate([make(), make()])
+    assert report.stop_known == 0
+    assert report.stop_rate == 0.0
+
+
 def test_format_report_flags_the_empty_gold_prop():
     scores = [make(gold_empty=True)] * 5 + [make(execution_match=False)] * 5
     text = format_report(aggregate(scores), title="test model")
@@ -346,3 +390,25 @@ def test_format_report_flags_schema_hallucination():
 def test_format_report_shouts_about_broken_gold():
     text = format_report(aggregate([make(), make(gold_ok=False)]))
     assert "gold queries did not run" in text
+
+
+def test_format_report_omits_stop_line_when_unknown():
+    text = format_report(aggregate([make(), make()]))
+    assert "stopped cleanly" not in text
+
+
+def test_format_report_includes_stop_line_when_known():
+    text = format_report(aggregate([make(terminated=True), make(terminated=False)]))
+    assert "stopped cleanly" in text
+
+
+def test_diagnose_warns_when_stop_rate_is_low():
+    scores = [make(terminated=False)] * 9 + [make(terminated=True)]
+    text = format_report(aggregate(scores))
+    assert "not emitting its stop token" in text
+
+
+def test_diagnose_does_not_warn_when_stop_rate_is_high():
+    scores = [make(terminated=True)] * 9 + [make(terminated=False)]
+    text = format_report(aggregate(scores))
+    assert "not emitting its stop token" not in text

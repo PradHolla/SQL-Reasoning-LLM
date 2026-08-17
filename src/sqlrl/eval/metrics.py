@@ -39,6 +39,7 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import traverse_scope
 
 from sqlrl.eval.executor import compare, parse_sql, read_schema, requires_order, run
+from sqlrl.eval.prompts import stopped_cleanly
 
 __all__ = [
     "ExampleScore",
@@ -231,6 +232,10 @@ class ExampleScore:
     gold_empty: bool
     pred_status: str
     error_kind: str
+    #: Whether the model stopped right after ``</answer>`` -- see
+    #: ``stopped_cleanly``. ``None`` when the raw completion was not passed to
+    #: ``score_example``, or when ``stopped_cleanly`` itself could not tell.
+    terminated: bool | None = None
 
 
 @lru_cache(maxsize=64)
@@ -253,8 +258,15 @@ def score_example(
     *,
     timeout: float = 5.0,
     dedupe: bool = False,
+    raw: str | None = None,
 ) -> ExampleScore:
-    """Run both queries and produce every signal for this one example."""
+    """Run both queries and produce every signal for this one example.
+
+    ``raw`` is the untrimmed model completion, before ``extract_sql`` cuts it
+    down to just the query. It is optional and keyword-only because most
+    callers (and most of this module's own tests) only have ``pred_sql`` --
+    when it is omitted, ``terminated`` is left ``None`` rather than guessed at.
+    """
     gold = run(gold_sql, db_path, timeout=timeout)
     pred = run(pred_sql, db_path, timeout=timeout)
 
@@ -275,6 +287,7 @@ def score_example(
         gold_empty=gold_ok and not gold.rows,
         pred_status=pred.status,
         error_kind=classify_error(pred.status, pred.error),
+        terminated=stopped_cleanly(raw) if raw is not None else None,
     )
 
 
@@ -294,6 +307,15 @@ class Report:
     structural_match: float
     parse_rate: float
     execution_rate: float
+    #: Fraction of ``stop_known`` examples that stopped cleanly -- see
+    #: ``stopped_cleanly``. 0.0 when ``stop_known`` is 0, so it never claims a
+    #: rate over an empty denominator.
+    stop_rate: float
+    #: How many scores had an opinion (``terminated is not None``) at all.
+    #: ``format_report`` and ``_diagnose`` gate on this being nonzero, so a
+    #: run without raw completions (or an all-CPT run) does not print a 0%
+    #: stop rate that means "unmeasured", not "failed".
+    stop_known: int
     error_kinds: dict[str, int] = field(default_factory=dict)
 
 
@@ -301,6 +323,7 @@ def aggregate(scores: list[ExampleScore]) -> Report:
     n = len(scores)
     scoreable = [s for s in scores if s.gold_ok]
     nonempty = [s for s in scoreable if not s.gold_empty]
+    known = [s for s in scores if s.terminated is not None]
 
     return Report(
         n=n,
@@ -314,6 +337,8 @@ def aggregate(scores: list[ExampleScore]) -> Report:
         structural_match=_rate(sum(s.structural_match for s in scores), n),
         parse_rate=_rate(sum(s.parsed for s in scores), n),
         execution_rate=_rate(sum(s.executed for s in scores), n),
+        stop_rate=_rate(sum(s.terminated for s in known), len(known)),
+        stop_known=len(known),
         error_kinds=dict(
             Counter(s.error_kind for s in scores if s.error_kind != "ok").most_common()
         ),
@@ -341,6 +366,10 @@ def format_report(report: Report, title: str = "") -> str:
         "",
         f"  parse rate           {report.parse_rate:6.1%}",
         f"  execution rate       {report.execution_rate:6.1%}",
+    ]
+    if report.stop_known:
+        lines.append(f"  stopped cleanly      {report.stop_rate:6.1%}")
+    lines += [
         f"  structural match     {report.structural_match:6.1%}   (not Spider EM)",
         f"  execution accuracy   {report.execution_accuracy:6.1%}   <- headline",
         f"    excl. empty gold   {report.execution_accuracy_nonempty:6.1%}   "
@@ -378,5 +407,13 @@ def _diagnose(report: Report) -> list[str]:
         notes.append(
             "right rows from differently shaped queries -- the model is finding its own "
             "path rather than reproducing gold, which is fine"
+        )
+    if report.stop_known and report.stop_rate < 0.5:
+        notes.append(
+            "the model is not emitting its stop token, so nearly every generation runs "
+            "to the token cap instead of stopping after </answer>; accuracy is unaffected "
+            "because extract_sql cuts the prediction there regardless, but generation costs "
+            "several times what it should. Likely cause: Qwen2.5's <|im_end|> is untrained "
+            "and LoRA freezes the embedding, so the model never learns to produce it"
         )
     return notes

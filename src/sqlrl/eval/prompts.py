@@ -33,6 +33,7 @@ __all__ = [
     "cpt_prompt",
     "extract_sql",
     "render_schema",
+    "stopped_cleanly",
 ]
 
 #: Verbatim from format_sft_data.py / grpo_trainer.py. Do not "improve" it --
@@ -134,6 +135,47 @@ def extract_sql(text: str) -> str:
         body = fenced
 
     return _tidy(body)
+
+
+_ANSWER_CLOSE = re.compile(r"</answer>", re.IGNORECASE)
+
+
+def stopped_cleanly(text: str) -> bool | None:
+    """Did generation stop right after the answer, or keep running past it?
+
+    This is a **text proxy**, not the real signal. What we actually want to
+    know is whether generation ended on a stop token or was cut off at
+    ``max_new_tokens`` -- but the backend does not currently record that, so
+    there is no ground truth to read. What we have instead is the completion
+    text, and a model that stopped cleanly leaves nothing after its closing
+    ``</answer>`` while one that did not keeps emitting tokens -- typically
+    unrelated pretraining memories -- until the token budget runs out. The
+    proxy's one big advantage over fixing the backend is that it can be
+    computed retroactively over every result file already on disk, without
+    regenerating anything.
+
+    Anchored on the **first** closing ``</answer>``, matching what
+    ``extract_sql`` does when it builds the prediction. That choice is the
+    whole metric: a runaway completion often emits further ``</answer>`` tags
+    among the text it rambles into, and anchoring on the last one credits the
+    model with stopping cleanly whenever the ramble happens to end with a
+    closing tag. On ``sft-spider`` that alone is the difference between 2.9%
+    and 0.0% -- a metric built to expose this bug would have hidden 63 cases of
+    it.
+
+    Returns ``True`` when the first ``</answer>`` has nothing but whitespace
+    after it, ``False`` when it has trailing non-whitespace content, and
+    ``None`` when there is no closing ``</answer>`` at all. ``None`` is
+    deliberately not folded into ``False``: it covers the CPT completion
+    format (no tags to look for, see ``cpt_prompt``) and answers truncated
+    mid-block, both of which already show up in parse rate. Counting them here
+    too would make those baselines read as 0% stopped for a reason that has
+    nothing to do with whether the model knows how to stop.
+    """
+    match = _ANSWER_CLOSE.search(text)
+    if match is None:
+        return None
+    return text[match.end() :].strip() == ""
 
 
 def _first_group(text: str, *patterns: re.Pattern[str]) -> str | None:

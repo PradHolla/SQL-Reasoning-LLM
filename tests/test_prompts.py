@@ -15,6 +15,7 @@ from sqlrl.eval.prompts import (
     cpt_prompt,
     extract_sql,
     render_schema,
+    stopped_cleanly,
 )
 
 SCHEMA = {
@@ -153,3 +154,67 @@ def test_extract_returns_empty_when_there_is_no_query(text):
 
 def test_extract_does_not_invent_a_query_from_refusal():
     assert extract_sql("I cannot answer that question.") == ""
+
+
+# --------------------------------------------------------------------------
+# stopped_cleanly
+# --------------------------------------------------------------------------
+
+
+def test_stopped_cleanly_true_when_nothing_follows():
+    text = "<think>x</think>\n<answer>\nSELECT a FROM t\n</answer>"
+    assert stopped_cleanly(text) is True
+
+
+def test_stopped_cleanly_true_with_trailing_whitespace():
+    # Trailing whitespace/newlines after </answer> still count as stopping.
+    text = "<answer>SELECT a FROM t</answer>\n\n   \n"
+    assert stopped_cleanly(text) is True
+
+
+def test_stopped_cleanly_false_when_content_follows():
+    text = "<answer>SELECT a FROM t</answer> and then some more text"
+    assert stopped_cleanly(text) is False
+
+
+def test_stopped_cleanly_none_when_no_closing_tag():
+    # The CPT completion format has no tags at all -- unknown, not a failure.
+    text = "SELECT a FROM t"
+    assert stopped_cleanly(text) is None
+
+
+def test_stopped_cleanly_none_on_truncated_answer():
+    text = "<answer>\nSELECT a FROM t"
+    assert stopped_cleanly(text) is None
+
+
+def test_stopped_cleanly_is_case_insensitive():
+    text = "<answer>SELECT a FROM t</ANSWER>"
+    assert stopped_cleanly(text) is True
+    text = "<answer>SELECT a FROM t</ANSWER> junk"
+    assert stopped_cleanly(text) is False
+
+
+def test_stopped_cleanly_uses_the_first_answer_tag():
+    """The first closing tag governs, matching what extract_sql reads.
+
+    A runaway completion frequently emits further ``</answer>`` tags among the
+    text it rambles into. Anchoring on the last one would credit the model with
+    stopping cleanly whenever the ramble happens to end on a closing tag --
+    which on sft-spider is 63 of 2,147 predictions, i.e. a metric built to
+    expose this bug quietly hiding it.
+    """
+    text = "<answer>SELECT a FROM t</answer> junk <answer>SELECT b FROM t</answer>"
+    assert stopped_cleanly(text) is False
+    text = "<answer>SELECT a FROM t</answer>"
+    assert stopped_cleanly(text) is True
+
+
+def test_stopped_cleanly_observed_bug():
+    # Shortened but faithful sample of the bug this metric exists to catch:
+    # the model answers, then keeps generating unrelated code.
+    text = (
+        "<think>x</think>\n<answer>\nSELECT a FROM t\n</answer> "
+        "onActivityResult(requestCode:Int) {\n when (requestCode) { }\n}"
+    )
+    assert stopped_cleanly(text) is False

@@ -721,7 +721,8 @@ def score(record: RunRecord, examples: list[Example], timeout: float) -> tuple[R
             f"the saved run is stale, regenerate it"
         )
         result = score_example(
-            prediction.pred_sql, prediction.gold_sql, example.db_path, timeout=timeout
+            prediction.pred_sql, prediction.gold_sql, example.db_path,
+            timeout=timeout, raw=prediction.raw,
         )
         scores.append(result)
         if not example.contaminated:
@@ -843,17 +844,24 @@ def format_votes(
 
 
 def comparison_table(rows: list[tuple[str, Report, Report]]) -> str:
-    """The model x metric table. The deliverable of Phase 1."""
+    """The model x metric table. The deliverable of Phase 1.
+
+    ``stop`` sits between ``exec`` and ``parse`` -- see ``metrics.stop_rate`` --
+    and prints an em dash rather than 0.0% when nothing is known, so a
+    completion-format baseline (no ``</answer>`` tag to look for) cannot be
+    misread as "never stops cleanly" when the truth is "not measured here".
+    """
     header = (
-        f"{'model':<16} {'EX':>7} {'EX/clean':>9} {'exec':>7} {'parse':>7} "
-        f"{'struct':>7} {'n':>6}"
+        f"{'model':<16} {'EX':>7} {'EX/clean':>9} {'exec':>7} {'stop':>7} "
+        f"{'parse':>7} {'struct':>7} {'n':>6}"
     )
     lines = [header, "-" * len(header)]
     for name, full, clean in rows:
+        stop = f"{full.stop_rate:>7.1%}" if full.stop_known else f"{'—':>7}"
         lines.append(
             f"{name:<16} {full.execution_accuracy:>7.1%} {clean.execution_accuracy:>9.1%} "
-            f"{full.execution_rate:>7.1%} {full.parse_rate:>7.1%} "
-            f"{full.structural_match:>7.1%} {full.n:>6}"
+            f"{full.execution_rate:>7.1%} {stop} "
+            f"{full.parse_rate:>7.1%} {full.structural_match:>7.1%} {full.n:>6}"
         )
     return "\n".join(lines)
 
