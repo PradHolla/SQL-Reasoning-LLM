@@ -4,7 +4,9 @@
 
 Post-training small language models (0.5B and 1.5B) to answer questions about a database by writing SQL that actually runs and returns the right rows.
 
-**6.4% → 68.1%** execution accuracy on the Spider benchmark, ending 3.1 points behind a model five times larger.
+**6.4% → 68.1%** execution accuracy on the Spider benchmark single-shot, **71.5%** with execution voting — level with a model five times larger, at eight times the inference cost.
+
+And **45.2%** when it has to find its own tables in a 300-table database instead of being handed the right one. That last number is the honest one, and getting to it is most of what Phase 5 was about.
 
 ## What the model does
 
@@ -28,13 +30,15 @@ Sounds easy. It isn't, because real schemas are much bigger and the hard part is
 
 Almost everything below turns out to be about that one problem.
 
-## The five things worth knowing
+## The seven things worth knowing
 
 1. **The original pipeline scored worse than the untrained model it started from** — 6.4% against 17.4% — and nobody could have known, because there was no held-out evaluation at all.
 2. **The benchmark was half-leaked.** 562 of Spider dev's 1,034 questions appear verbatim in the training set, gold SQL included.
 3. **One of the three training stages was actively destructive**, costing 17.4% → 3.1% once a 2×2 separated it from a prompt-format confound.
 4. **Technique is worth +20.9 points independent of model size**, measured by running the old recipe and the new one on the same larger base. Both technique and scale matter, and they saturate against each other.
 5. **Reinforcement learning stopped helping as the base model got better** — +5.1 points at 0.5B, +0.2 and not significant at 1.5B — while every diagnostic metric still improved. The reward paid for something that had stopped being the bottleneck.
+6. **Handing the model the correct database was doing more work than four phases of training.** Make it retrieve its own tables and 63.5% becomes 45.2% — and most of that loss is *distraction*, not absence: the irrelevant tables cost twice what the missing ones do.
+7. **How much the model agrees with itself predicts whether it's right**, for free. Unanimous across 8 samples → correct 84.5% of the time, and that's 70% of questions. A split vote is a coin flip.
 
 Every number here is on held-out data, and differences are checked with a paired significance test rather than eyeballed.
 
@@ -42,7 +46,7 @@ Every number here is on held-out data, and differences are checked with a paired
 
 ## Where it stands
 
-Spider **test** split: 2,147 questions over databases the model has never seen. Greedy decoding, one attempt per question. **EX** (execution accuracy) means the predicted SQL and the reference SQL return the same rows from the real database.
+Spider **test** split: 2,147 questions over databases the model has never seen. Greedy decoding, one attempt per question, except the last row. **EX** (execution accuracy) means the predicted SQL and the reference SQL return the same rows from the real database.
 
 | | EX | executes | parses | struct |
 |---|---|---|---|---|
@@ -53,8 +57,17 @@ Spider **test** split: 2,147 questions over databases the model has never seen. 
 | **1.5B** — same recipe, code-pretrained base | 67.9% | 88.2% | 99.8% | 46.3% |
 | **1.5B** — + GRPO | **68.1%** | **90.6%** | **99.9%** | **47.3%** |
 | Qwen2.5-Coder-7B-Instruct (5× bigger) | 71.2% | 89.3% | 95.8% | 35.9% |
+| **1.5B** — + execution voting, 8 samples | **71.5%** | 95.1% | 100.0% | 48.5% |
 
-The 7B row is there on purpose. It still wins, and pretending otherwise would be silly — though the 1.5B model parses better (99.9% vs 95.8%) and matches query structure better (47.3% vs 35.9%).
+The 7B row is there on purpose. Single-shot it still wins, and pretending otherwise would be silly — though the 1.5B model parses better (99.9% vs 95.8%) and matches query structure better (47.3% vs 35.9%).
+
+The voting row draws level with it, but **that's eight times the inference for one model's worth of parameters**, so it's a compute-for-size trade rather than a free win, and it belongs with that caveat attached. [What it costs to run](#what-it-costs-to-run) has the latency.
+
+One number for calibration on how precisely to read any of this: the greedy pass
+re-run inside the voting job scored 68.0%, not 68.1% — same weights, same seed,
+same questions, different batch composition. **Roughly a tenth of a point is the
+noise floor here**, which is why nothing in this README leans on a difference
+that small.
 
 The other three columns exist for diagnosis, not scoring. The **gaps between them** are where the diagnosis lives: a model that parses 99% but executes 65% is inventing columns; one that parses 22% is producing text that isn't SQL. A single accuracy number can't tell you which, which is why this tracks four.
 
@@ -179,6 +192,192 @@ Two diagnostics from that run are worth carrying anywhere else:
 
 ---
 
+## Getting more out of the model you already have
+
+Everything above changes the *weights*. At 68.1% the failures split like this:
+
+```
+1,462  correct                                          68%
+  483  runs perfectly, answers the wrong question       22%
+  202  the database rejects it outright                  9%
+```
+
+Those two failure types need completely different fixes, and the split is what
+Phase 5 is built around.
+
+### Letting it retry barely works, for an interesting reason
+
+When the database rejects a query it says why — *no such column: customer_name*.
+So show the model its own error and let it try again, up to three times.
+
+**+1.1 points.** I predicted +4 and was wrong.
+
+The reason is the useful part. Of 202 rejected queries, 63 became something the
+database would accept — but only **23 of those were actually correct**. The other
+40 moved from obviously broken to quietly wrong.
+
+An error message tells you *that* you are wrong, never *what* is right. And on
+the 0.5B model retry did essentially nothing (+0.2, 12 of 500 repaired), because
+a model told "no such column" still has no idea which column does exist.
+
+### Voting works, and works where retry can't
+
+Sample 8 candidates, run all of them, group them **by the rows they return
+rather than the SQL text**, and answer with the largest group. Two queries
+written completely differently that return identical results are probably both
+right; a hallucinated one usually returns something nobody else got.
+
+```
+                 retry      voting
+1.5B model       +1.1        +3.5
+0.5B model       +0.2        +3.0
+```
+
+Three times better, and 38 of the fixes came out of the *runs-fine-wrong-answer*
+pile — the 483 queries retry is structurally blind to, because nothing goes
+wrong for it to read.
+
+The asymmetry across model size is the lesson: **retry needs a model good enough
+to act on feedback; voting only needs one that's right sometimes**, and then
+fishes that answer out. The second is a much weaker requirement, which is why
+voting survives at a scale where retry collapses.
+
+Voting also beat retry on retry's own ground — 45 rejected queries repaired
+against 23. Seven more samples is a better repair mechanism than one error
+message, which is worth knowing before building anything cleverer than sampling.
+
+Grouping goes through the same `compare` the benchmark uses, not a hash of the
+rows. It runs a bounded column-permutation search, so `SELECT age, name` and
+`SELECT name, age` count as one answer — a hash would split exactly the groups
+voting exists to merge. That executor is now doing three jobs: benchmark metric,
+RL reward, and vote.
+
+**The trap:** empty result sets all compare equal to each other. `WHERE 1=0`, a
+hallucinated filter matching nothing, and a genuinely empty answer form one
+cluster and vote as a bloc. Three people shrugging is not a consensus. Empty
+clusters are demoted below any non-empty one: worth **+1.3 points**, and it costs
+6 questions where the true answer really was empty. Both halves measured.
+
+### Agreement predicts correctness, for free
+
+The best thing to come out of Phase 5 costs no extra compute — it falls out of
+the votes you already have:
+
+| agreement across 8 samples | share of questions | how often correct |
+|---|---|---|
+| all 8 | 69.5% | **84.5%** |
+| 6–7 of 8 | 12.3% | 56.1% |
+| 1–5 of 8 | 13.2% | 44.0% |
+| nothing ran | 4.9% | 0.0% |
+
+**When the model agrees with itself it's right 85% of the time. When it doesn't,
+it's a coin flip.** That's the difference between a system that silently returns
+wrong numbers and one that can say "I'm not confident about this one" — which
+matters more in a product than the 3.5 points do.
+
+It replicates at both model sizes, shifted down at 0.5B, which is what makes it a
+property of the method rather than a quirk of one checkpoint.
+
+### The remaining gap is a selection problem, and heuristics can't touch it
+
+Voting picks a wrong answer while holding a correct one **3.6% of the time**. That
+looked like the cheapest remaining win — no training, no GPU, the candidates are
+already on disk.
+
+I looked at the failures before building anything: **87% are cases where the wrong
+answer won 6-votes-to-2.** The model is confidently, consistently wrong, and no
+frequency-based rule can override a 6–2 majority. I built two smarter selectors
+anyway and measured them at +0.1 and −0.1.
+
+Dead end, and worth the hour it took to prove rather than the week it would have
+taken to build. Closing that gap needs a learned verifier, not a tiebreak rule.
+
+---
+
+## The number that would matter in production
+
+Every score above hands the model the complete, correct schema for the exact
+database. Real databases have hundreds of tables and don't fit in a context
+window. So: can it find its own?
+
+Building a fair test was most of the work, and the first design was wrong.
+Spider's databases are tiny — a median of **4 tables** — so retrieval over one
+measures nothing. The obvious fix, pooling all 206 databases into one haystack,
+fails for a reason worth recording: **125 table names appear in more than one
+database**, covering 41% of all tables. `customers` is in 22 of them. A question
+about customers is then genuinely ambiguous, no retriever can resolve it, and the
+experiment would have measured an impossible task and blamed the retriever.
+
+The pool is instead a **collision-free** subset: 81 databases, 300 tables, 1,457
+questions, no duplicate names. It renders to 8,262 tokens against a 3,072-token
+limit, so retrieval is mandatory rather than decorative.
+
+```
+                     finds all needed tables      EX
+keyword matching (BM25)        64.1%            37.1%
+embedding matching             86.3%            45.2%
+the correct database (control)    —             63.5%
+exactly the right tables          —             68.4%
+```
+
+Two findings, neither of which I predicted.
+
+**A minimal perfect schema beats the correct database by +4.9 points.** Less
+schema is better at question time — the opposite direction to Phase 1.5, where
+*training* on pruned schemas was actively harmful. Training on them means never
+learning to pick tables out of a crowd; not having to pick at inference is pure
+upside. Consistent with `unknown_column` having been the dominant failure since
+day one.
+
+**Most of the loss is distraction, not absence.** Split by whether retrieval
+actually found everything:
+
+```
+all needed tables present   1,257 questions (86.3%)   EX 51.9%
+at least one missing          200 questions (13.7%)   EX  3.0%
+```
+
+The missing half behaves as expected — 3% is effectively zero, those questions
+are unanswerable. That costs about 9 points. But **even with every needed table
+in the prompt, accuracy is 51.9% against oracle's 68.4%** — 16.5 points burned
+purely by the nine irrelevant tables sitting next to the right ones. Execution
+rate falls from 92.1% to 66.8%: the model reaches for a plausible table from a
+different database entirely.
+
+I predicted 58–61% by assuming EX = coverage × baseline, i.e. that finding the
+tables was the whole problem. The gap between that and 45.2% is exactly the
+distraction term that model has no room for. **Retrieval is a noise problem as
+much as a search problem, and the noise is more expensive than the misses.**
+
+---
+
+## What it costs to run
+
+The project could say it was 68.1% accurate and nothing whatsoever about whether
+a query takes 200ms or 30 seconds. One A10G, one request at a time:
+
+```
+mode        accuracy   p50 ms   p95 ms   p99 ms     q/s
+greedy         69.0%     2794     5143     8590    0.32
+vote8          70.0%     5865    10711    17755    0.15
+retry3         70.0%     2866    11686    28140    0.25
+```
+
+**The tail is the finding.** `retry3`'s median is indistinguishable from plain
+greedy, because most requests never enter the loop — but its p99 is 28 seconds.
+Retry is nearly free for the typical request and catastrophic for the unlucky
+one, and the mean (3,932ms) hides that completely. Voting costs about 2× across
+the board but is far more predictable at the tail. **The mean says retry is
+cheaper; the tail says voting is safer**, and users experience the tail.
+
+Accuracy over 100 questions can't resolve a 3.5-point effect and isn't offered as
+evidence for one — it's a check that the service agrees with the harness, and
+69.0% against 68.1% says it does. The service reuses the same voting and retry
+code the numbers were measured with, rather than reimplementing it, precisely so
+that check means something.
+
+---
+
 ## Three bugs that were invisible and expensive
 
 All three failed silently. No crash, no warning, just a plausible wrong number. These are the most portable thing in the repo.
@@ -195,6 +394,21 @@ The reason is in the base model. `Qwen2.5-0.5B` **base** carries the chat specia
 ```
 
 Adapters train attention and MLP, not the embedding — and Qwen ties the embedding to the output layer. So emitting `<|im_end|>` would mean aiming the hidden state at a near-random 896-dimensional vector while competing with a well-trained `<|endoftext|>`. The gradient had nowhere to go. It learned *where* to stop and picked the token it could reach.
+
+And it stayed invisible for three more phases. Three checkpoints emit their
+answer and then keep generating to the token cap — **not one of 2,147 generations
+stopped cleanly** — while every checkpoint trained after the fix stops 100% of the
+time. Nobody noticed because `extract_sql` cuts at `</answer>` and cleaned up
+after it every single time. Accuracy was never affected; the cost was compute,
+roughly 6–8× on every evaluation of those checkpoints. A 0.5B model took 2,139
+seconds where a *larger* one took 793, and that should have been a red flag.
+
+There is now a `stop` column in the results table, so it can't hide again. Note
+what it anchors on: the **first** `</answer>`, not the last. A runaway completion
+often emits more `</answer>` tags in the text it rambles into, and anchoring on
+the last one credits the model with stopping whenever the ramble happens to end
+on a tag — 63 of 2,147 predictions. A metric written to expose this bug would
+have hidden a sixteenth of it.
 
 The wider lesson is about checking. I already had an assertion for stop-token mismatches, and **it passes on the broken checkpoint** — it compares the tokenizer's setting to the saved tokenizer's setting, they agree, and the model agrees with neither. Two configs agreeing tells you nothing about what the weights do. The only real check is to generate and look, which is what `assert_model_stops` does now, in both trainers, before anything is saved. `sqlrl.base_report` runs the same check on any new base model before you train on it.
 
@@ -213,6 +427,14 @@ I found it by writing a script that attacks my own reward with policies that nev
 **GRPO** — a reinforcement learning algorithm. The model writes 8 answers to the same question, each is scored, and it's pushed toward whatever scored well. It learns from its *own* attempts rather than copied answers.
 
 **LoRA** — instead of updating all the model's weights, freeze them and train a small number of extra ones bolted on the side. Much cheaper, and why this fits on one rented GPU.
+
+**Execution voting** — sample several answers, run them all, and go with whichever *result* the most answers agree on. Grouping by result rather than by query text is the whole trick: two correct queries rarely look alike.
+
+**pass@k / the oracle** — is *any* of the k samples correct? The ceiling a perfect chooser could reach. The gap between it and what voting actually scores tells you whether to invest in the model or in the choosing.
+
+**coverage@k** — of the tables a question needs, did retrieval find *all* of them? Reported instead of recall because finding 1 of 2 needed tables leaves the question just as unanswerable, and recall would generously call that 50%.
+
+**p50 / p95 / p99** — the median request, the slowest 1 in 20, the slowest 1 in 100. Averages hide tails, and tails are what users complain about.
 
 **McNemar's test** — how two models are compared here. Both answer the same questions, so most of the data is shared and uninformative; only the questions where they *disagree* say anything. If the models were equally good, disagreements should split evenly. 251 vs 142 is not even, and the test says how unlikely that is by chance.
 
@@ -261,7 +483,33 @@ uv run python -m sqlrl.eval.run_eval --model all --split test --score-only   # r
 uv run python -m sqlrl.training.reward_probe
 ```
 
-**Tests:** 234, via `uv run pytest`. Heavily weighted toward the places where being wrong produces a believable number instead of a crash.
+**Retrieval, and the end-to-end cost of it.** The first prints how often each
+retriever finds every table a question needs; the second runs the model on what
+retrieval gave it. `--retrieve gold` is the control, scored over the same
+question subset — comparing against the full-split number would be comparing two
+different benchmarks:
+
+```bash
+uv run python -m sqlrl.eval.retrieval --split test --k 1,3,5,10,20
+uv run python -m sqlrl.eval.run_eval --model grpo-coder15 --retrieve dense --top-k 10
+uv run python -m sqlrl.eval.run_eval --model grpo-coder15 --retrieve gold
+```
+
+**Inference-time techniques:**
+
+```bash
+uv run python -m sqlrl.eval.run_eval --model grpo-coder15 --samples 8        # voting
+uv run python -m sqlrl.eval.run_eval --model grpo-coder15 --max-attempts 3   # retry
+```
+
+**Serve it, and find out what it costs:**
+
+```bash
+uv run uvicorn sqlrl.serving.api:app --port 8080
+uv run python -m sqlrl.serving.bench --n 100 --modes greedy,vote8,retry3
+```
+
+**Tests:** 338, via `uv run pytest`. Heavily weighted toward the places where being wrong produces a believable number instead of a crash.
 
 ## Layout
 
@@ -272,6 +520,9 @@ src/sqlrl/
     metrics.py        the four numbers and a failure taxonomy
     spider.py         download, contamination check, reference verification
     prompts.py        prompt formats, and pulling SQL back out of model output
+    voting.py         sample k, group by result rows, take the majority
+    retry.py          feed the database's error back and try again
+    retrieval.py      find the right tables in a 300-table pool
     run_eval.py       the harness
   training/
     sft_spider.py     supervised fine-tuning
@@ -282,20 +533,50 @@ src/sqlrl/
   data_prep/
     sample_traces.py  teacher sampling + execution filtering
     build_trace_sft.py
+  serving/
+    service.py        the model, plus voting/retry, plus a calibrated confidence
+    api.py            HTTP: ask a question, get SQL, rows and a confidence
+    bench.py          latency reported next to accuracy
   base_report.py      what to check about a base model before training on it
   tokenizer.py        one place that decides how text becomes tokens
 infra/                EC2: launch, start, stop, detached job runner, idle shutdown
 ```
 
-The original trainers are still here, unmodified. They're the baseline every number above is measured against, so they stay.
+The original trainers are gone as of Phase 5, along with the `unsloth` dependency
+whose only remaining importers they were. The old recipe is still reproducible —
+`sft_spider.py --full-sequence-loss` is what produced the ablation it loses to —
+so deleting them cost no measurement.
+
+Removing that dependency broke three test modules, which was the useful part:
+**`peft` was only ever installed because unsloth happened to depend on it**, while
+this package imports it directly on the critical path of every number here. A
+fresh clone had been broken the whole time and nothing said so. Same defect Phase
+0 fixed for `fastapi` and `uvicorn`, wearing a different hat.
 
 ## What's next
 
-Two things, both aimed at the failure class that's left. The remaining errors are queries that run perfectly and answer the wrong question — which the current reward is blind to.
+Both of the things this section used to list — retrieval and an agentic loop —
+are built and measured above. What they turned up reshapes the list.
 
-**Schema retrieval**, so databases too large to fit in a prompt become tractable at all.
+**Cut the distraction, not the misses.** Retrieval's dominant cost is irrelevant
+tables, not absent ones, so the obvious move — retrieve more — makes it worse. A
+smaller k, or a second pass that prunes the retrieved set before the model sees
+it. The oracle row says 68.4% is genuinely available if the schema arrives clean.
 
-**An agentic loop** that runs its own query, reads the error or the empty result, and tries again. A model that can *see* its query returned nothing has information no single-shot reward can give it.
+**A learned verifier**, for the 3.6% of questions where the model writes a correct
+query and the vote picks a different one. Heuristics are measured dead on arrival
+there; it needs a model that scores candidates against the question.
+
+**vLLM**, for the 2.8-second median. Batch-of-one serving is the biggest weakness
+in the numbers above and continuous batching is the standard answer. Removing
+`unsloth` cleared one of the three things that made it unresolvable; whether the
+other two still bite needs testing on a CUDA machine.
+
+**Multi-turn RL** was the original plan and I'd skip it. The ceiling isn't how
+often the model repairs a rejected query, it's that only 37% of repairs are
+right — and at 1.5B, 56% of RL training groups already produce no gradient
+because the model agrees with itself. Trajectory-level training makes that worse,
+not better.
 
 ## Costs
 
