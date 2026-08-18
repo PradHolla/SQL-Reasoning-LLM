@@ -8,23 +8,46 @@ dependencies = [
     "datasets>=4.3.0",
     "fastapi>=0.141.1",
     "huggingface-hub>=1.6.0",
-    "openai>=2.54.0",
+    # Declared explicitly, not left to arrive through something else. Both are
+    # imported directly by this package: peft in eval/backends/hf.py and both
+    # trainers, pydantic in serving/api.py. peft in particular was only ever
+    # installed because unsloth happened to depend on it, so removing unsloth
+    # broke three test modules -- a fresh clone would have had the same failure
+    # all along. Same class of defect Phase 0 fixed for fastapi and uvicorn.
+    "peft>=0.19.0",
+    "pydantic>=2.0",
     "sqlglot>=29.0.1",
     "torch>=2.10.0",
     "transformers>=5.2.0",
     "trl>=0.24.0",
-    "unsloth>=2026.3.4",
     "uvicorn>=0.52.1",
     "wandb>=0.25.1",
 ]
+# openai was dropped with the v0 serving layer: the only importer was the old
+# api.py, which streamed from a vLLM server that was not running. Nothing in
+# the package imports it now.
+# vllm is imported by data_prep/sample_traces.py and is deliberately absent --
+# that step runs in its own throwaway environment, see requirements-teacher.txt
+# and the note below.
 
-# NOTE: vLLM is deliberately NOT a dependency here, optional or otherwise.
-# It pins torch and transformers hard, and every version of it conflicts with
-# some combination of this project's torch>=2.10, transformers>=5.2 and unsloth.
-# Resolving that would mean upgrading the training stack, which would change
-# training and evaluation behaviour and break the chain of comparable numbers
-# this whole project is built on. The teacher-sampling step runs in its own
-# throwaway environment instead -- see requirements-teacher.txt.
+# unsloth is gone as of Phase 5. It was a training-time optimisation whose
+# get_chat_template silently rewrote the vocabulary -- it put <|im_end|> at the
+# id stock Qwen2.5 uses for <|endoftext|>, so every v0 checkpoint had to carry a
+# broken tokenizer to generate at all, and any eval pairing those adapters with
+# a stock tokenizer read near zero for a reason unrelated to the model. Phase 0
+# found it, Phase 1.5 stopped using it, and the last five files importing it
+# were v0 trainers superseded by sft_spider.py and grpo_spider.py. Note the v0
+# recipe is still reproducible without it: `sft_spider.py --full-sequence-loss`
+# is what produced the v0-coder15 ablation.
+
+# NOTE: vLLM is still NOT a dependency here, optional or otherwise. It pins
+# torch and transformers hard. With unsloth removed the conflict may now be
+# resolvable -- that is worth testing on a CUDA machine, since vLLM will not
+# even build without CUDA_HOME so it cannot be settled on a laptop -- but until
+# someone runs that test this stays out. Changing torch or transformers would
+# change training and evaluation behaviour and break the chain of comparable
+# numbers this whole project is built on. The teacher-sampling step runs in its
+# own throwaway environment instead -- see requirements-teacher.txt.
 
 [project.scripts]
 eval = "sqlrl.eval.run_eval:main"
