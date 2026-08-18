@@ -88,11 +88,26 @@ def _percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
+#: Print a progress line every this many requests. A benchmark that prints
+#: nothing for twenty minutes is indistinguishable from one that has hung, and
+#: this project has twice gone looking for a stalled job that was fine. The
+#: running p50 is included because it is the number that says whether the
+#: remaining time will look like the elapsed time.
+PROGRESS_EVERY = 10
+
+
 def run_mode(
-    service: SqlService, mode: Mode, examples: list[Example], *, timeout: float, temperature: float
+    service: SqlService,
+    mode: Mode,
+    examples: list[Example],
+    *,
+    timeout: float,
+    temperature: float,
+    progress: bool = True,
 ) -> list[_Sample]:
-    samples = []
-    for example in examples:
+    samples: list[_Sample] = []
+    started = time.perf_counter()
+    for index, example in enumerate(examples, start=1):
         answer = service.answer(
             example.question, example.db_id,
             samples=mode.samples, max_attempts=mode.max_attempts, temperature=temperature,
@@ -106,6 +121,18 @@ def run_mode(
             correct=score.execution_match,
             sql_tokens=sql_tokens,
         ))
+
+        if progress and (index % PROGRESS_EVERY == 0 or index == len(examples)):
+            elapsed = time.perf_counter() - started
+            done = len(samples)
+            remaining = (len(examples) - index) * elapsed / index
+            print(
+                f"    {mode.label}: {index}/{len(examples)}  "
+                f"p50 {_percentile([s.total_ms for s in samples], 0.50):.0f}ms  "
+                f"acc {sum(s.correct for s in samples) / done:.0%}  "
+                f"eta {remaining / 60:.1f}m",
+                flush=True,
+            )
     return samples
 
 
@@ -152,6 +179,8 @@ def main() -> int:
     parser.add_argument("--max-new-tokens", type=int, default=384)
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--no-progress", action="store_true",
+                        help="suppress the per-10-request progress lines")
     args = parser.parse_args()
 
     modes = [parse_mode(name) for name in args.modes.split(",")]
@@ -168,7 +197,10 @@ def main() -> int:
     rows: list[tuple[str, ModeStats]] = []
     for mode in modes:
         started = time.perf_counter()
-        mode_samples = run_mode(service, mode, sample, timeout=args.timeout, temperature=args.temperature)
+        mode_samples = run_mode(
+            service, mode, sample, timeout=args.timeout,
+            temperature=args.temperature, progress=not args.no_progress,
+        )
         elapsed = time.perf_counter() - started
         rows.append((mode.label, summarize(mode_samples, elapsed)))
         print(f"  {mode.label}: {len(mode_samples)} questions in {elapsed:.1f}s")
