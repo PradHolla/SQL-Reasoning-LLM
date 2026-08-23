@@ -1,0 +1,802 @@
+<title>The Execution Signal</title>
+<style>
+  :root {
+    --ground:#F1F4F0; --panel:#FAFBF9; --panel-2:#E9EEE9;
+    --ink:#17201B; --ink-soft:#4E5C54; --ink-faint:#7A8880;
+    --rule:#CFD8D0; --rule-soft:#E1E7E1;
+    --defect:#97382C; --fix:#1C5A4E; --mark:#8A6212;
+    --code-bg:#EDF1EC;
+    --serif: Georgia,'Iowan Old Style','Palatino Linotype','Book Antiqua',serif;
+    --mono: ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
+    --measure:70ch;
+    --s1:.5rem; --s2:.85rem; --s3:1.4rem; --s4:2.2rem; --s5:3.6rem; --s6:5.5rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#111614; --panel:#171E1A; --panel-2:#1D2621;
+      --ink:#E3E9E4; --ink-soft:#A3B0A8; --ink-faint:#77857D;
+      --rule:#2B342E; --rule-soft:#212823;
+      --defect:#DE8B7C; --fix:#63C0AA; --mark:#D6A64A;
+      --code-bg:#161D19;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#111614; --panel:#171E1A; --panel-2:#1D2621;
+    --ink:#E3E9E4; --ink-soft:#A3B0A8; --ink-faint:#77857D;
+    --rule:#2B342E; --rule-soft:#212823;
+    --defect:#DE8B7C; --fix:#63C0AA; --mark:#D6A64A;
+    --code-bg:#161D19;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);font-family:var(--serif);
+    font-size:17px;line-height:1.62;margin:0;padding:var(--s5) var(--s3) var(--s6);
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:64rem;margin:0 auto}
+  .col{max-width:var(--measure)}
+  p{margin:0 0 var(--s2);text-wrap:pretty}
+  a{color:var(--fix)}
+  strong{font-weight:700}
+
+  .mast{border-bottom:2px solid var(--ink);padding-bottom:var(--s3)}
+  .eyebrow{font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 var(--s3)}
+  h1{font-size:clamp(2.4rem,6.5vw,4rem);line-height:1;letter-spacing:-.025em;
+    font-weight:400;margin:0 0 var(--s2);text-wrap:balance}
+  .standfirst{font-size:1.18rem;color:var(--ink-soft);margin:0;max-width:52ch}
+
+  .arc{display:grid;grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr));
+    gap:var(--s3);margin:var(--s4) 0;padding:var(--s3) 0;
+    border-bottom:1px solid var(--rule)}
+  .arc div{display:flex;flex-direction:column;gap:.2rem}
+  .arc b{font-family:var(--mono);font-size:1.5rem;font-weight:500;
+    font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .arc span{font-family:var(--mono);font-size:.64rem;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--ink-faint)}
+
+  nav.toc{background:var(--panel);border:1px solid var(--rule-soft);
+    border-radius:3px;padding:var(--s3);margin:var(--s4) 0 var(--s5)}
+  nav.toc h2{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink-faint);margin:0 0 var(--s2);font-weight:400}
+  nav.toc ol{margin:0;padding:0;list-style:none;columns:2;column-gap:var(--s4)}
+  nav.toc li{font-size:.93rem;margin-bottom:.3rem;break-inside:avoid}
+  nav.toc a{text-decoration:none;color:var(--ink)}
+  nav.toc a:hover{color:var(--fix);text-decoration:underline}
+  nav.toc .k{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);margin-right:.5rem}
+  @media(max-width:44rem){nav.toc ol{columns:1}}
+
+  h2.sec{display:flex;align-items:baseline;gap:var(--s2);
+    margin:var(--s6) 0 var(--s3);padding-bottom:var(--s1);
+    border-bottom:1px solid var(--ink);font-weight:400;
+    font-size:1.7rem;letter-spacing:-.015em;text-wrap:balance}
+  h2.sec .k{font-family:var(--mono);font-size:.8rem;color:var(--ink-faint);
+    letter-spacing:.1em;white-space:nowrap}
+  h3{font-size:1.16rem;font-weight:700;letter-spacing:-.005em;
+    margin:var(--s4) 0 var(--s2);text-wrap:balance}
+
+  code{font-family:var(--mono);font-size:.87em;background:var(--code-bg);
+    padding:.1em .32em;border-radius:2px;font-variant-numeric:tabular-nums}
+  pre{background:var(--code-bg);border:1px solid var(--rule-soft);border-radius:3px;
+    padding:var(--s3);overflow-x:auto;margin:var(--s2) 0 var(--s3);
+    font-family:var(--mono);font-size:.82rem;line-height:1.55;
+    font-variant-numeric:tabular-nums}
+  pre code{background:none;padding:0;font-size:inherit}
+  .cm{color:var(--ink-faint)}
+  .hl{color:var(--fix);font-weight:600}
+  .bad{color:var(--defect);font-weight:600}
+
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+  .down{color:var(--defect);font-weight:500}
+  .up{color:var(--fix);font-weight:500}
+
+  .scroll{overflow-x:auto;margin:var(--s2) 0 var(--s3)}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  th,td{text-align:left;padding:.45rem .9rem .45rem 0;border-bottom:1px solid var(--rule-soft)}
+  th{font-family:var(--mono);font-size:.61rem;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-faint);font-weight:400}
+  td.n,th.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  tr.hi td{background:var(--panel-2)}
+  caption{caption-side:bottom;text-align:left;font-size:.82rem;color:var(--ink-faint);
+    padding-top:var(--s1)}
+
+  /* Figures keep a fixed light ground in BOTH themes. A chart here is an
+     export -- it goes into posts, slides, decks -- and should look the same
+     wherever it lands rather than inheriting the page around it. The card
+     matches the PNG's own background so the two never seam, and the caption
+     ink is fixed for the same reason. */
+  .fig{margin:var(--s3) 0 var(--s4);background:#FCFCFB;
+    border:1px solid var(--rule);border-radius:3px;
+    padding:var(--s2) var(--s2) var(--s3)}
+  .fig img{display:block;width:100%;height:auto;border-radius:2px}
+  .fig figcaption{margin:var(--s2) var(--s1) 0;font-size:.88rem;line-height:1.5;
+    color:#3A4640;max-width:70ch}
+  .fig .src{display:block;margin-top:.5rem;font-family:var(--mono);
+    font-size:.66rem;letter-spacing:.06em;color:#5F6B65}
+
+  .finding{border-left:2px solid var(--fix);padding:var(--s1) 0 var(--s1) var(--s3);
+    margin:var(--s3) 0}
+  .finding p{margin:0}
+  .finding .lbl{display:block;font-family:var(--mono);font-size:.6rem;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--fix);margin-bottom:.3rem}
+
+  .pipe{display:flex;flex-wrap:wrap;align-items:stretch;gap:.4rem;
+    margin:var(--s3) 0 var(--s4)}
+  .pipe .stage{flex:1 1 8.5rem;background:var(--panel);border:1px solid var(--rule);
+    border-radius:3px;padding:var(--s2);display:flex;flex-direction:column;gap:.25rem}
+  .pipe .stage b{font-size:.9rem;font-weight:700}
+  .pipe .stage span{font-family:var(--mono);font-size:.66rem;color:var(--ink-faint);
+    line-height:1.4}
+  .pipe .stage.key{border-color:var(--fix);border-width:2px}
+  .pipe .arrow{align-self:center;color:var(--ink-faint);font-family:var(--mono);font-size:.9rem}
+  @media(max-width:44rem){.pipe .arrow{display:none}}
+
+  .entry{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s4);
+    padding:var(--s3) 0;border-bottom:1px solid var(--rule-soft)}
+  .entry>h4{grid-column:1/-1;font-size:1rem;font-weight:700;margin:0 0 var(--s2)}
+  .entry p{font-size:.94rem;margin:0}
+  .entry .was{color:var(--ink-soft)}
+  .lbl2{display:block;font-family:var(--mono);font-size:.59rem;letter-spacing:.13em;
+    text-transform:uppercase;color:var(--ink-faint);margin-bottom:.3rem}
+  @media(max-width:44rem){.entry{grid-template-columns:1fr;gap:var(--s2)}}
+
+  footer{margin-top:var(--s6);padding-top:var(--s3);border-top:2px solid var(--ink);
+    color:var(--ink-faint);font-size:.88rem}
+  ::selection{background:var(--panel-2)}
+  :focus-visible{outline:2px solid var(--fix);outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Engineering write-up · text-to-SQL · small language models</p>
+  <h1>The Execution Signal</h1>
+  <p class="standfirst">One primitive — run the query, compare the rows — used as benchmark metric, reinforcement-learning reward, synthetic-data filter, and inference-time vote. This is how each of those works, and what each was worth.</p>
+</header>
+
+<div class="arc">
+  <div><b>71.5%</b><span>execution accuracy</span></div>
+  <div><b>1.5B</b><span>parameters</span></div>
+  <div><b>71.2%</b><span>a 5× larger model</span></div>
+  <div><b>45.2%</b><span>with real retrieval</span></div>
+  <div><b>2,147</b><span>held-out questions</span></div>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="k">1</span><a href="#task">The task, and why it's hard</a></li>
+    <li><span class="k">2</span><a href="#measure">Measurement: the executor</a></li>
+    <li><span class="k">3</span><a href="#pipeline">Pipeline overview</a></li>
+    <li><span class="k">4</span><a href="#sft">Supervised fine-tuning</a></li>
+    <li><span class="k">5</span><a href="#rl">An execution-grounded RL reward</a></li>
+    <li><span class="k">6</span><a href="#traces">Reasoning traces by rejection sampling</a></li>
+    <li><span class="k">7</span><a href="#scale">Technique versus scale</a></li>
+    <li><span class="k">8</span><a href="#retry">Inference-time: retry on rejection</a></li>
+    <li><span class="k">9</span><a href="#voting">Inference-time: execution voting</a></li>
+    <li><span class="k">10</span><a href="#conf">Confidence from self-agreement</a></li>
+    <li><span class="k">11</span><a href="#retrieval">Schema retrieval</a></li>
+    <li><span class="k">12</span><a href="#serving">Serving and latency</a></li>
+    <li><span class="k">13</span><a href="#results">Consolidated results</a></li>
+    <li><span class="k">14</span><a href="#residual">Anatomy of the remaining 32%</a></li>
+    <li><span class="k">15</span><a href="#wrong">What we got wrong</a></li>
+    <li><span class="k">16</span><a href="#limits">Limitations and next steps</a></li>
+    <li><span class="k">17</span><a href="#provenance">Provenance</a></li>
+  </ol>
+</nav>
+
+<!-- ============ 1 ============ -->
+<h2 class="sec" id="task"><span class="k">01</span> The task, and why it's hard</h2>
+<div class="col">
+<p>Given a database schema and a question in English, emit SQL that answers it.</p>
+</div>
+<pre><code><span class="cm">-- input</span>
+Schema:   CREATE TABLE head (head_ID INT, name TEXT, born_state TEXT, age REAL);
+          CREATE TABLE department (Department_ID INT, Name TEXT, Budget REAL);
+          CREATE TABLE management (department_ID INT, head_ID INT, acting TEXT)
+Question: How many heads of the departments are older than 56?
+
+<span class="cm">-- target</span>
+SELECT count(*) FROM head WHERE age &gt; 56</code></pre>
+<div class="col">
+<p>The SQL surface here is trivial. The hard part is <strong>schema linking</strong>: deciding that "heads of the departments" means the <code>head</code> table and not <code>management</code>, and that "older than" is <code>age</code> and not one of thirty-nine other columns. Get the syntax right and the column wrong and you have a query that runs beautifully and returns the wrong answer.</p>
+<p>Nearly every result below turns out to be about that one problem. The models are small on purpose — 0.5B and 1.5B parameters, LoRA adapters, one 24 GB GPU — because the interesting question is how much can be extracted from a weak model rather than how a large one performs.</p>
+<p>The benchmark is <strong>Spider</strong>: ~10,000 human-written questions over 200 real SQLite databases, split so the test databases never appear in training. You cannot pass it by memorising one schema; you have to read one you have never seen.</p>
+</div>
+
+<!-- ============ 2 ============ -->
+<h2 class="sec" id="measure"><span class="k">02</span> Measurement: the executor</h2>
+<div class="col">
+<p>Everything rests on one function: run the predicted query and the reference query against the real database, and compare the rows that come back. Not string similarity, not AST equality — <strong>execution accuracy</strong>.</p>
+<p>This matters because the obvious alternative fails immediately. Exact string matching scores <code>age&gt;56</code> as zero against <code>age &gt; 56</code>: identical queries, identical results, no credit. And there are usually many correct queries for one question.</p>
+</div>
+
+<h3>Comparison semantics</h3>
+<div class="col">
+<p>"Same rows" needs pinning down, and each choice moves the number:</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Decision</th><th>Choice</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Row multiplicity</td><td>multiset</td><td>Set comparison makes <code>SELECT name</code> and <code>SELECT DISTINCT name</code> indistinguishable. Spider's official script uses sets, so our numbers read slightly <em>lower</em> than published ones.</td></tr>
+<tr><td>Column order</td><td>ignored</td><td>Bounded permutation search. Answering <code>age, name</code> for <code>name, age</code> is presentation, not correctness.</td></tr>
+<tr><td>Row order</td><td>only when the reference says so</td><td>Derived from whether the gold query has a non-window <code>ORDER BY</code>.</td></tr>
+<tr><td>Numerics</td><td>9 significant digits</td><td>So <code>SUM(x)/COUNT(x)</code> and <code>AVG(x)</code> agree despite float noise.</td></tr>
+<tr><td>Connection</td><td>read-only</td><td>Model-authored SQL can contain <code>DROP TABLE</code>. If that ever landed, every later evaluation against that database would be silently wrong.</td></tr>
+<tr><td>Timeout</td><td>progress handler</td><td><code>sqlite3.connect(timeout=)</code> bounds <em>lock</em> acquisition only, and would let a runaway join spin forever.</td></tr>
+</tbody>
+</table></div>
+
+<div class="finding">
+<p><span class="lbl">Known limitation, measured rather than hidden</span>An empty result set matches an empty reference, so <code>WHERE 1=0</code> scores on any question whose true answer is empty. That cannot be fixed inside a comparison function. Instead it is quantified: <span class="num">54 of 2,147</span> reference answers are empty (2.5%), and accuracy is reported both with and without them. If the two diverge, the headline is propped up by questions nobody actually answered.</p>
+</div>
+
+<h3>Four numbers, because one cannot say why</h3>
+<div class="col">
+<p>Every run reports parse rate, execution rate, execution accuracy, and structural match. <strong>The gaps between them are the diagnosis.</strong> Parse 99% with execution 65% means the model is inventing columns. Execution 90% with accuracy 30% means it writes valid SQL answering a different question — a reasoning problem, not a syntax one. A single accuracy number cannot distinguish those.</p>
+</div>
+
+<h3>Contamination</h3>
+<div class="col">
+<p>Before trusting any score, we hash-compared benchmark questions against the training corpus. <strong><span class="num">562 of Spider dev's 1,034 questions appear verbatim in the training set</span></strong>, reference SQL included — the common <code>sql-create-context</code> corpus is partly built from Spider.</p>
+<p>Any dev score was therefore partly a memorisation score. The primary benchmark moved to Spider <em>test</em> (16 of 2,147 overlapping, 0.7%, disjoint databases). This affects every project trained on that corpus and evaluated on Spider dev, which is a great many of them.</p>
+</div>
+
+<h3>Guarding the metric itself</h3>
+<div class="col">
+<p>Two failure modes in the measuring apparatus, both found the hard way:</p>
+<p>An <em>empty prediction</em> returned "ok" with zero rows from SQLite, which compares equal to any empty reference — a free point for generating nothing. A query producing no result set is now an error.</p>
+<p>And the SQL parser's cost is <em>exponential</em> in JOINs without an <code>ON</code> clause: 12 joins parse in 0.04s, 20 in 11.2s, more never return. A degenerate model output stopped an evaluation run dead. The executor had a timeout; the parser did not, and a parser that never returns cannot be interrupted. It is now bounded by limits derived from the benchmark itself — across all 3,181 reference queries the longest is 608 characters with 6 joins.</p>
+</div>
+
+<!-- ============ 3 ============ -->
+<h2 class="sec" id="pipeline"><span class="k">03</span> Pipeline overview</h2>
+<div class="pipe">
+  <div class="stage"><b>Data</b><span>Spider train, full schemas, contamination-checked, every reference query executed before it is kept</span></div>
+  <div class="arrow">→</div>
+  <div class="stage"><b>SFT</b><span>LoRA, completion-only loss, 2 epochs</span></div>
+  <div class="arrow">→</div>
+  <div class="stage key"><b>GRPO</b><span>tiered execution reward, 8 rollouts per prompt</span></div>
+  <div class="arrow">→</div>
+  <div class="stage key"><b>Inference</b><span>retrieval → k samples → execute → vote → confidence</span></div>
+  <div class="arrow">→</div>
+  <div class="stage"><b>Serving</b><span>HTTP, rows + confidence + timings</span></div>
+</div>
+<div class="col">
+<p>The executor sits underneath the two highlighted stages and under evaluation, which is the organising idea of the project: <strong>in reinforcement learning your evaluation and your reward are the same skill.</strong> Build one and you get the other. It later became the filter for synthetic training data, and then the grouping function for inference-time voting. One component, four jobs.</p>
+</div>
+
+<!-- ============ 4 ============ -->
+<h2 class="sec" id="sft"><span class="k">04</span> Supervised fine-tuning</h2>
+<div class="col">
+<p>Three decisions carry most of the weight.</p>
+</div>
+
+<h3>Train on full schemas</h3>
+<div class="col">
+<p>The widely-used <code>sql-create-context</code> corpus supplies schemas <strong>pruned to exactly the columns the answer needs</strong>. A model trained on that never learns to read a schema, which is the actual task. Its failures at evaluation are 88% invented columns and tables. Rebuilding on Spider with real database schemas is the single largest change in the project.</p>
+</div>
+
+<h3>Mask the prompt</h3>
+<div class="col">
+<p>With full schemas the prompt is roughly 75% of the tokens in a training example. Computing loss over the whole sequence means most of the gradient teaches the model to <em>generate database schemas</em>. Completion-only loss puts every gradient step on the answer.</p>
+</div>
+
+<h3>Validation loss picks the wrong checkpoint</h3>
+<div class="col">
+<p>Epoch 2 looked slightly worse than epoch 1 on both validation loss and token accuracy, and was <span class="num up">+3.9 points</span> of real execution accuracy. Loss is a proxy for a proxy. Run the metric you actually care about, on held-out data, at every checkpoint.</p>
+</div>
+<div class="finding">
+<p><span class="lbl">Result</span>Original pipeline <span class="num down">6.4%</span> → rebuilt SFT <span class="num up">44.6%</span>. For scale, the untrained base model scores 17.4% with its best prompt, so the original three-stage pipeline had been performing <em>worse than no training at all</em>.</p>
+</div>
+
+<!-- ============ 5 ============ -->
+<h2 class="sec" id="rl"><span class="k">05</span> An execution-grounded RL reward</h2>
+<div class="col">
+<p>GRPO (Group Relative Policy Optimization) samples several answers to the same prompt, scores each, and pushes the policy toward the ones that scored above their group's average. The advantage for rollout <em>i</em> is roughly:</p>
+</div>
+<pre><code>advantage_i = (reward_i − mean(group)) / std(group)</code></pre>
+<div class="col">
+<p>Read that formula carefully, because it dictates the reward design. <strong>If every rollout in a group scores identically, the numerator is zero for all of them and the group contributes no gradient at all.</strong></p>
+<p>The original setup had two rewards: a format reward worth +1.0 that fired for essentially every sample, and exact string match worth +2.0 that fired for almost none. So a group of four scored <code>[1.0, 1.0, 1.0, 1.0]</code>. The diagnostic for this, <code>frac_reward_zero_std</code>, sat between 0.5 and 1.0 and reached 1.00 by step 160 — a large share of 300 training steps did literally nothing.</p>
+</div>
+
+<h3>A ladder with partial credit</h3>
+<div class="scroll"><table>
+<thead><tr><th>Outcome</th><th class="n">Reward</th><th>Signal it provides</th></tr></thead>
+<tbody>
+<tr><td>no SQL found, or it will not parse</td><td class="n">0.0</td><td>—</td></tr>
+<tr><td>parses as SQL</td><td class="n">0.2</td><td>syntax is a solved sub-problem</td></tr>
+<tr><td>the database accepted and ran it</td><td class="n">0.5</td><td>tables and columns actually exist</td></tr>
+<tr class="hi"><td>result set matches the reference</td><td class="n">2.0</td><td>correct</td></tr>
+</tbody>
+</table></div>
+<div class="col">
+<p>Now a group where nothing is fully correct still scores <code>[0.2, 0.5, 0.5, 0.2]</code> — genuine disagreement, genuine gradient. The <code>0.5</code> tier is aimed squarely at the dominant failure: it pays specifically for <em>the columns existing</em>.</p>
+</div>
+<pre><code><span class="cm"># the mechanism, not just the score — failure counts before → after RL</span>
+unknown_column   647 → 458   <span class="hl">(−29%)</span>
+unknown_table     66 →   7   <span class="hl">(−89%)</span></code></pre>
+<div class="finding">
+<p><span class="lbl">Result</span><span class="num">44.6% → 49.7%</span>, McNemar χ² = 29.7, p &lt; 0.001. It fixed 251 questions and broke 142 — the +5.1 is a net, not a clean sweep, and reporting it as a net matters.</p>
+</div>
+
+<h3>Three implementation details that each silently break it</h3>
+<div class="col">
+<p><strong>Reward scaling cancels the ladder.</strong> TRL's default <code>scale_rewards="group"</code> divides each group's scores by that group's own standard deviation. The <em>ordering</em> of the tiers survives; the <em>spacing</em> does not. A group whose best answer was genuinely correct then pushes exactly as hard as one whose best answer merely parsed — the careful ladder degenerates into "rank within group". Set to <code>"none"</code>, which preserves a 7.5× spread between "correct" and "parsed".</p>
+<p><strong>The KL reference is not what you think.</strong> Under LoRA, TRL's reference policy is the adapter <em>switched off</em> — the raw base model, not your SFT checkpoint. A large, constant KL is therefore measuring how far supervised fine-tuning already moved, not what RL is doing. We set <code>beta=0</code> rather than regularise toward a model we had deliberately trained away from.</p>
+<p><strong>Result-size caps must be lossless.</strong> The reward caps rows at <code>len(gold_rows) + 1</code>. Any prediction returning more rows than that cannot match under multiset comparison, so the cap can never change a verdict — it just stops a hallucinated cross join from materialising a million rows inside the training loop.</p>
+</div>
+
+<h3>Attacking the reward before spending on it</h3>
+<div class="col">
+<p>Reward hacking is normally discovered from a reward curve that climbs while the benchmark stays flat — that is, after the GPU hours are spent. Instead we wrote eleven <em>question-blind</em> policies and measured what each could extract:</p>
+</div>
+<pre><code>SELECT 1                       <span class="cm">— always parses, never matches</span>
+SELECT * FROM &lt;first table&gt;    <span class="cm">— always executes</span>
+SELECT COUNT(*) FROM &lt;table&gt;   <span class="hl">best: 26.8% of gold's mean reward, 1.8% exact match</span>
+WHERE 1 = 0                    <span class="cm">— exploits the empty-result equality</span>
+degenerate cross joins         <span class="cm">— tests the row cap and parser guards</span></code></pre>
+<div class="col">
+<p>The best lazy policy reaches 27% of what real answers earn, and matches on 1.8% of questions — the empty-answer slice, exactly as predicted. The reward is not trivially exploitable, and that is now a measured number rather than a hope. This probe is also what caught the <code>scale_rewards</code> default above.</p>
+</div>
+
+<!-- ============ 6 ============ -->
+<h2 class="sec" id="traces"><span class="k">06</span> Reasoning traces by rejection sampling</h2>
+<div class="col">
+<p>The original training data instructed the model to think before answering, but the "thinking" was <strong>one hardcoded sentence repeated across all 5,378 examples</strong>. As scratch paper that is blank — it carries no information about the specific question, so the model learns to recite a preamble.</p>
+<p>The replacement is rejection sampling (STaR): have a larger model solve each training question eight times showing its work, then <strong>execute every attempt and keep only traces whose SQL is correct</strong>. The execution filter is the entire technique — a large model is wrong confidently and fluently, and training on fluent wrong reasoning is worse than not training. Yield: 4,823 verified traces, 90.8% question coverage, median 114 words of reasoning naming real tables and columns.</p>
+</div>
+<div class="finding">
+<p><span class="lbl">And it made the model worse</span><span class="num down">44.6% → 41.8%</span>. The cause was arithmetic, not conceptual.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Training data</th><th class="n">Completion tokens</th><th class="n">Of which SQL</th><th class="n">Share of gradient on the SQL</th></tr></thead>
+<tbody>
+<tr><td>canned sentence</td><td class="n">62.6</td><td class="n">33.6</td><td class="n">53.7%</td></tr>
+<tr><td>real traces</td><td class="n">195.1</td><td class="n">31.1</td><td class="n">15.9%</td></tr>
+</tbody>
+</table></div>
+<div class="col">
+<p>The SQL barely changed size; 114 words of prose grew around it. At identical epochs and learning rate, the model was getting <strong>3.4× less training on the part that gets scored</strong>. Paying for it with more epochs recovers and exceeds: <span class="num up">41.8% → 47.1%</span>.</p>
+<p>But the gains did not stack. RL on top of the trace model was a wash — +0.1 points, 179 fixed against 177 broken. Both interventions attack schema hallucination, and RL is better at it, so the traces did a partial version of RL's job and left it nothing to do.</p>
+</div>
+
+<!-- ============ 7 ============ -->
+<h2 class="sec" id="scale"><span class="k">07</span> Technique versus scale</h2>
+<div class="col">
+<p>The obvious challenge to any result like this is "you just needed a bigger model". That is an empirical question, so: run the <em>old</em> recipe and the <em>new</em> recipe on the same larger, code-pretrained base.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Recipe</th><th class="n">0.5B</th><th class="n">1.5B</th><th class="n">Scale effect</th></tr></thead>
+<tbody>
+<tr><td>old</td><td class="n">4.6%</td><td class="n">46.9%</td><td class="n">+42.4</td></tr>
+<tr class="hi"><td>new</td><td class="n">44.6%</td><td class="n">67.9%</td><td class="n">+23.2</td></tr>
+<tr><td><em>technique effect</em></td><td class="n">+40.1</td><td class="n">+20.9</td><td class="n">—</td></tr>
+</tbody>
+<caption>Technique at 1.5B: 559 fixed, 110 broken, χ²=300, p&lt;0.001. Scale under the new recipe: 577 fixed, 78 broken, χ²=379, p&lt;0.001.</caption>
+</table></div>
+<div class="col">
+<p><strong>Both matter and they saturate against each other.</strong> Technique is worth +20.9 points even on a 3× larger code-pretrained base, so the pipeline is not merely compensating for a weak model. But that is half its value at 0.5B, and the effects do not add: 4.6% to 67.9% is +63.3 total against +82 if they were independent.</p>
+<p>The ablation was built deliberately generous to the old recipe — its destructive pre-training stage omitted, its vocabulary-corrupting library omitted, the working stop token used. It is the strongest fair version of the thing it loses to.</p>
+</div>
+<div class="finding">
+<p><span class="lbl">Negative result worth reporting</span>RL's contribution collapsed as the base improved: <span class="num">+5.1</span> at 0.5B, <span class="num">+0.2</span> and not significant at 1.5B. Every diagnostic still improved — hallucinated columns down 23%, execution rate 88.2% → 90.6%, syntax errors 5 → 2. <strong>Everything improved except the score.</strong> The reward pays for executability, and at 1.5B executability had stopped being the bottleneck. Also: 56% of training groups produced no gradient because the model now agrees with itself. <strong>RL gets harder as the policy gets better</strong>, because it runs on within-group disagreement.</p>
+</div>
+
+<!-- ============ 8 ============ -->
+<h2 class="sec" id="retry"><span class="k">08</span> Inference-time: retry on rejection</h2>
+<div class="col">
+<p>At 68.1%, the remaining failures split into two populations that need completely different treatments:</p>
+</div>
+<pre><code>1,462  correct                                        68.1%
+  483  runs perfectly, answers the wrong question     22.5%   <span class="cm">no error exists</span>
+  202  the database rejects it                         9.4%   <span class="hl">an error message exists</span></code></pre>
+<div class="col">
+<p>The second group has a signal to work with. Feed the database's error back and let the model try again, up to three rounds. Two details make it a measurement rather than a demo:</p>
+<p><strong>The loop never sees the reference answer.</strong> Its only stopping signal is the executor's status, which is all that exists at inference time. A loop that consulted gold would be measuring something that cannot exist in production.</p>
+<p><strong>Rounds are batched, not per-example.</strong> Round 1 generates all 2,147; only the ~200 rejections enter round 2. Per-example looping is roughly 50× slower for an identical answer.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Model</th><th>Feedback shape</th><th class="n">EX@1</th><th class="n">EX@3</th><th class="n">Δ</th><th class="n">Generations</th></tr></thead>
+<tbody>
+<tr class="hi"><td>1.5B</td><td>multi-turn</td><td class="n">68.1%</td><td class="n">69.2%</td><td class="n">+1.1</td><td class="n">1.16×</td></tr>
+<tr><td>1.5B</td><td>restated single-turn</td><td class="n">68.1%</td><td class="n">68.7%</td><td class="n">+0.6</td><td class="n">1.17×</td></tr>
+<tr><td>0.5B</td><td>multi-turn</td><td class="n">49.7%</td><td class="n">49.7%</td><td class="n">+0.0</td><td class="n">1.46×</td></tr>
+<tr><td>0.5B</td><td>restated single-turn</td><td class="n">49.7%</td><td class="n">49.9%</td><td class="n">+0.2</td><td class="n">1.46×</td></tr>
+</tbody>
+<caption>Both feedback shapes were measured because every checkpoint was fine-tuned on strictly single-turn conversations; a growing conversation is out of distribution, so a loss under multi-turn could be format shock rather than retry failing.</caption>
+</table></div>
+
+<h3>Why it underperforms</h3>
+<pre><code>202  rejected on attempt 1
+ 63  became executable      <span class="hl">31% of rejections</span>
+ 23  were actually correct  <span class="bad">37% of repairs</span>
+ 40  moved from "database refused it" to "runs fine, wrong rows"</code></pre>
+<div class="col">
+<p>There are two multiplications here, not one. <strong>An error message tells you <em>that</em> you are wrong, never <em>what</em> is right</strong> — so the model fixes the complaint rather than the answer, and two-thirds of repairs migrate from the visible failure bucket to the invisible one.</p>
+<p>At 0.5B the loop does essentially nothing: 500 rejections, 12 repaired. A weak model told "no such column: X" still cannot determine which column does exist.</p>
+</div>
+<div class="finding">
+<p><span class="lbl">Note on statistics</span>McNemar's test is <em>not</em> reported for retry, deliberately. Retry cannot break anything by construction — an errored attempt can never match the reference, so replacing it only ever helps. <code>broke = 0</code> in all four runs (verified, not assumed) and any positive count is trivially "significant". The honest frame is effect size against cost.</p>
+</div>
+
+<!-- ============ 9 ============ -->
+<h2 class="sec" id="voting"><span class="k">09</span> Inference-time: execution voting</h2>
+<div class="col">
+<p>The 483 queries that run cleanly and answer the wrong question produce no error, so retry is structurally blind to them. But they <em>disagree with their siblings</em>, and disagreement is a signal.</p>
+<p>Sample k candidates, execute all of them, group them <strong>by the rows they return rather than by the SQL text</strong>, and answer with the largest group. Two queries written completely differently that return identical result sets are probably both right; a hallucinated one usually returns something nobody else got.</p>
+</div>
+
+<h3>Grouping uses the comparison function, not a hash</h3>
+<pre><code>clusters = []
+for i, candidate in enumerate(candidates):
+    if candidate.status != "ok":       <span class="cm"># a rejected query has no answer to agree with</span>
+        continue
+    for indices in clusters:
+        rep = candidates[indices[0]]
+        <span class="hl">if compare(candidate.rows, rep.rows, requires_order(rep.sql)):</span>
+            indices.append(i); break
+    else:
+        clusters.append([i])
+clusters.sort(key=lambda ix: (-len(ix), min(ix)))   <span class="cm"># deterministic</span></code></pre>
+<div class="col">
+<p>Hashing the result set would be faster and wrong. <code>compare</code> runs a bounded column-permutation search, so <code>SELECT age, name</code> and <code>SELECT name, age</code> are one answer — a hash splits exactly the groups voting exists to merge. At k=8 that is 28 comparisons per question at ~0.04 ms each.</p>
+<p>Two properties are enforced rather than hoped for. <code>candidates[0]</code> is always the greedy sample, so <strong>vote@1 reproduces the plain greedy score exactly</strong> — a wiring-bug detector — and ties break toward it. And because a vote at budget k only needs the first k candidates, one generation run yields the entire k-curve at no extra cost.</p>
+</div>
+
+<h3>The empty-result trap</h3>
+<div class="col">
+<p>Empty result sets all compare equal to each other <em>regardless of why they are empty</em>. A broken filter, a hallucinated condition matching nothing, and a genuinely empty answer land in one cluster and vote as a bloc. Unlike every other cluster, where agreement is evidence of correctness, an empty cluster's size mostly measures how many ways there are to return nothing. Three people shrugging is not a consensus.</p>
+<p>Empty clusters are therefore demoted below any non-empty cluster. Both sides of that trade are measured: it is worth <span class="num up">+1.3 points</span>, and it costs 6 questions where the reference answer really was empty.</p>
+</div>
+
+<div class="scroll"><table>
+<thead><tr><th class="n">k</th><th class="n">vote@k</th><th class="n">pass@k (oracle)</th><th class="n">Selection gap</th><th class="n">Gain per doubling</th></tr></thead>
+<tbody>
+<tr><td class="n">1</td><td class="n">68.1%</td><td class="n">68.1%</td><td class="n">0.0</td><td class="n">—</td></tr>
+<tr><td class="n">2</td><td class="n">69.2%</td><td class="n">70.1%</td><td class="n">0.9</td><td class="n">+1.2</td></tr>
+<tr><td class="n">4</td><td class="n">70.6%</td><td class="n">72.8%</td><td class="n">2.2</td><td class="n">+1.4</td></tr>
+<tr><td class="n">8</td><td class="n">71.7%</td><td class="n">75.4%</td><td class="n">3.7</td><td class="n">+1.1</td></tr>
+<tr class="hi"><td class="n">16</td><td class="n">72.1%</td><td class="n">76.9%</td><td class="n">4.8</td><td class="n">+0.4</td></tr>
+</tbody>
+<caption>pass@k is whether <em>any</em> of the k candidates is correct — the ceiling a perfect selector could reach. From one generation run of 16 samples, so every budget is scored on identical candidates. The k≤8 figures differ from the earlier 8-sample run by at most 0.2 points, which is this project's measured noise floor.</caption>
+</table></div>
+
+<figure class="fig" data-src="vote-curve.png">
+<figcaption>The two lines separate as k grows. vote@k is what the system answers with; pass@k is what it had available. Everything between them is a selection failure — a correct query generated and then not chosen.
+<span class="src">grpo-coder15 · Spider test, n=2,147 · temperature 0.8, top-p 0.95</span></figcaption>
+</figure>
+
+<div class="finding">
+<p><span class="lbl">Voting saturates; the ceiling does not</span>Each doubling of k buys <span class="num">+1.2</span>, <span class="num">+1.4</span>, <span class="num">+1.1</span>, then <span class="num down">+0.4</span> — the last doubling returns a third of the previous one. But pass@k keeps climbing, so <strong>the selection gap widens from 0.0 to 4.8 points</strong>. Sampling harder raises the ceiling faster than majority voting can reach it. At k=16 the bottleneck is no longer generating a right answer; it is recognising the one already in hand. Measured at k=8 alone this looks like a technique with room left in it, and it is not.</p>
+</div>
+
+<h3>Where the gain comes from</h3>
+<pre><code>greedy bucket  →  vote bucket
+    correct    →  correct      1452
+  ran_wrong    →  ran_wrong     453
+   rejected    →  rejected      106
+   rejected    →  correct        45
+   rejected    →  ran_wrong      45
+  ran_wrong    →  correct        38   <span class="hl">← structurally invisible to retry</span>
+    correct    →  ran_wrong       8
+
+fixed 83, broke 8   McNemar χ² = 60.2, p &lt; 0.001</code></pre>
+<div class="col">
+<p>McNemar <em>is</em> legitimate here, because voting can and did break things — 8 regressions makes the test two-directional again.</p>
+<p>Two results worth separating. Voting reaches the bucket retry cannot (38 fixes). And it also <strong>beat retry on retry's own ground</strong>: 45 rejected queries repaired against retry's 23. Seven more samples is a better repair mechanism than one error message.</p>
+</div>
+<div class="finding">
+<p><span class="lbl">The generalisable claim</span>Across both model sizes: retry buys +1.1 / +0.2, voting buys +3.5 / +3.0. <strong>Retry needs a model good enough to act on feedback; voting only needs one that is right sometimes</strong>, then fishes that answer out. The second is a far weaker requirement, which is why voting survives at a scale where retry collapses.</p>
+</div>
+
+<!-- ============ 10 ============ -->
+<h2 class="sec" id="conf"><span class="k">10</span> Confidence from self-agreement</h2>
+<div class="col">
+<p>Once you have k executed candidates you have a calibration signal for free: <em>how much did they agree?</em></p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Agreement (of 16)</th><th class="n">Questions</th><th class="n">Share</th><th class="n">Accuracy</th></tr></thead>
+<tbody>
+<tr class="hi"><td>unanimous — 16 of 16</td><td class="n">1,405</td><td class="n">65.4%</td><td class="n">85.9%</td></tr>
+<tr><td>12–15</td><td class="n">274</td><td class="n">12.8%</td><td class="n">60.6%</td></tr>
+<tr><td>1–11</td><td class="n">377</td><td class="n">17.6%</td><td class="n">46.2%</td></tr>
+<tr><td>nothing executed — 0 of 16</td><td class="n">91</td><td class="n">4.2%</td><td class="n">0.0%</td></tr>
+</tbody>
+<caption>Re-derived at k=16 from the same run as the curve above, using the service's own <code>winner_agreement</code> and <code>select</code> rather than a second definition of "how many agreed". The shape is unchanged from k=8: unanimity is the only band that separates.</caption>
+</table></div>
+
+<figure class="fig" data-src="calibration.png">
+<figcaption>Every agreement level, unpooled, with its population underneath. The ragged middle is the point: 5-of-16 scores 33% while 1-of-16 scores 55%, on 27 and 33 questions respectively. That is sampling noise, not a signal, and it is why the deployed bands are coarse.
+<span class="src">grpo-coder15 · Spider test, n=2,147 · k=16</span></figcaption>
+</figure>
+
+<div class="finding">
+<p><span class="lbl">A bucket that only exists at k=16</span><strong>91 questions (4.2%) where not one of sixteen samples produced a runnable query.</strong> Accuracy there is 0.0% by construction. At k=8 these are diluted into the low-agreement band; at 16 they separate cleanly, and the service can identify them <em>before</em> answering. Declining to answer 4.2% of questions is cheaper than being wrong on them.</p>
+</div>
+<div class="col">
+<p><strong>When the model agrees with itself it is right 85% of the time, and that covers 70% of questions. When it does not, it is close to a coin flip.</strong> In a product that is the difference between silently returning a wrong number and saying "I am not confident about this one".</p>
+<p>Three things make it honest. Each bucket reports the <em>pooled</em> accuracy of its own members — an earlier version bundled 7-of-8 (62.8%) with 6-of-8 (47.9%) and reported 62.8%, overstating the weaker half by 15 points. The buckets are coarse because below 7-of-8 the raw curve is noise on samples of 27–110: 2-of-8 scores <em>above</em> 4-of-8. And a single greedy sample reports <code>unmeasured</code> with no number rather than inventing one — a service reporting a confidence it has not calibrated is worse than one reporting none.</p>
+<p>The pattern replicates at 0.5B, shifted down (80.7% unanimous), which makes it a property of the method rather than a quirk of one checkpoint.</p>
+</div>
+
+<h3>The remaining gap is selection, and heuristics cannot close it</h3>
+<div class="col">
+<p>Voting picks a wrong answer while holding a correct one 3.6% of the time — larger than everything retry bought, and reachable with no training and no GPU. Before building a smarter selector we characterised the failures: <strong>87% are cases where the wrong answer won six votes to two.</strong> No frequency-based rule can override that. Two smarter selectors were built and measured at +0.1 and −0.1. Closing that gap needs a learned verifier, not a tiebreak rule.</p>
+</div>
+
+<!-- ============ 11 ============ -->
+<h2 class="sec" id="retrieval"><span class="k">11</span> Schema retrieval</h2>
+<div class="col">
+<p>Every number so far hands the model the complete, correct schema for the exact database. Real databases have hundreds of tables and do not fit in a context window. This section replaces that gift with a search problem.</p>
+</div>
+
+<h3>Building a benchmark that can measure anything</h3>
+<div class="col">
+<p>Spider's databases have a <strong>median of 4 tables and 19 columns</strong>, rendering to ~102 prompt tokens. Retrieval over that measures nothing. The obvious fix — pool all 206 databases into one haystack — fails for a reason worth recording:</p>
+</div>
+<pre><code>125 table names appear in more than one database
+436 of 1,053 tables affected  <span class="bad">(41%)</span>
+
+customers  → 22 databases      student → 12
+addresses  → 15                staff   → 11</code></pre>
+<div class="col">
+<p>A question about "customers" is then genuinely ambiguous, and <em>no retriever can resolve it</em>, because the question does not disambiguate. Such a benchmark would measure an impossible task and attribute the failure to the retriever.</p>
+<p>The pool is instead a <strong>collision-free</strong> subset: databases taken in descending order of how many benchmark questions they carry, skipping any whose table names clash with one already taken. Result: 81 databases, 300 tables, 1,427 columns, 1,457 of 2,147 questions, zero duplicate names. 107 of those tables belong to databases that carry questions; the other 193 are pure distractors. It renders to <strong>8,262 tokens against a 3,072-token input limit</strong>, so retrieval is mandatory rather than decorative.</p>
+</div>
+
+<h3>Two retrievers</h3>
+<div class="col">
+<p>Each table becomes one document, <code>"student: id, name, age, dept_id"</code>. The query is the question text and <em>nothing else</em> — never the database id, which would leak the answer.</p>
+<p><strong>BM25</strong>, keyword scoring, implemented directly. The tokeniser splits snake_case and camelCase while keeping the joined form, so <code>city_code</code> yields <code>["city_code", "city", "code"]</code>. Without that, a question saying "city" cannot match a column named <code>city_code</code> — which is most of what schema linking is.</p>
+<p><strong>Dense</strong>, a sentence embedding model with mean pooling over the attention mask and L2 normalisation, scored by dot product.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th class="n">k</th><th class="n">BM25 recall</th><th class="n">BM25 coverage</th><th class="n">Dense recall</th><th class="n">Dense coverage</th></tr></thead>
+<tbody>
+<tr><td class="n">1</td><td class="n">33.9%</td><td class="n">25.1%</td><td class="n">58.3%</td><td class="n">44.0%</td></tr>
+<tr><td class="n">5</td><td class="n">63.9%</td><td class="n">53.8%</td><td class="n">88.1%</td><td class="n">79.2%</td></tr>
+<tr class="hi"><td class="n">10</td><td class="n">73.0%</td><td class="n">64.1%</td><td class="n">92.6%</td><td class="n">86.3%</td></tr>
+<tr><td class="n">20</td><td class="n">78.6%</td><td class="n">70.7%</td><td class="n">95.1%</td><td class="n">90.3%</td></tr>
+</tbody>
+<caption><strong>coverage@k</strong> — did we retrieve <em>every</em> table the question needs — is the decisive metric, not recall@k. Missing one table of a two-table join makes the question unanswerable, and recall would generously score that 50%.</caption>
+</table></div>
+
+<h3>End to end, four conditions</h3>
+<div class="col">
+<p>Identical in every respect except what schema text enters the prompt, all over the same 1,457 questions. <code>gold</code> is the control — today's prompt, re-measured on the subset, because comparing against the full-split number would be comparing two different benchmarks.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Condition</th><th>Schema shown</th><th class="n">EX</th><th class="n">Executes</th></tr></thead>
+<tbody>
+<tr class="hi"><td>oracle</td><td>exactly the tables the answer uses</td><td class="n">68.4%</td><td class="n">92.1%</td></tr>
+<tr><td>gold</td><td>the whole correct database</td><td class="n">63.5%</td><td class="n">89.7%</td></tr>
+<tr><td>dense@10</td><td>10 tables from 300</td><td class="n">45.2%</td><td class="n">66.8%</td></tr>
+<tr><td>bm25@10</td><td>10 tables from 300</td><td class="n">37.1%</td><td class="n">57.5%</td></tr>
+</tbody>
+</table></div>
+
+<div class="col">
+<p><strong>A minimal perfect schema beats the correct database by +4.9 points.</strong> Less schema is better at inference time — the opposite direction from training, where pruned schemas were actively harmful because the model never learned to pick tables out of a crowd. Not having to pick at question time is pure upside.</p>
+<p>And the loss decomposes in a way that inverts the obvious model of retrieval:</p>
+</div>
+<pre><code>all needed tables present   1,257 questions (86.3%)   EX <span class="bad">51.9%</span>
+at least one missing          200 questions (13.7%)   EX  3.0%
+
+oracle                              68.4%
+  − distraction   16.5 points   →   51.9%   right tables present, plus ten more
+  − absence        6.7 points   →   45.2%   13.7% of questions miss a table</code></pre>
+<div class="finding">
+<p><span class="lbl">The finding</span>Missing tables behave exactly as expected — 3.0% is effectively zero and those questions are simply unanswerable. But <strong>even with every needed table in the prompt, accuracy is 51.9% against oracle's 68.4%</strong>: 16.5 points burned purely by the ten irrelevant tables sitting alongside the right ones. Execution rate falls from 92.1% to 66.8% as the model reaches for plausible tables belonging to other databases. <strong>Distraction costs two and a half times what absence does.</strong> Retrieval is a noise problem at least as much as a search problem.</p>
+</div>
+
+<h3>Turning the dial: k = 5, 10, 20</h3>
+<div class="col">
+<p>If distraction is the dominant cost, retrieving fewer tables should help. That prediction was made explicitly, and it is wrong. Six more runs — both retrievers at three budgets — say the size of the retrieved set is not the lever at all.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Retriever</th><th class="n">k</th><th class="n">Coverage</th><th class="n">EX when covered</th><th class="n">EX when missing</th><th class="n">EX overall</th></tr></thead>
+<tbody>
+<tr><td>dense</td><td class="n">5</td><td class="n">79.2%</td><td class="n">55.6%</td><td class="n">1.0%</td><td class="n">44.3%</td></tr>
+<tr class="hi"><td>dense</td><td class="n">10</td><td class="n">86.3%</td><td class="n">51.9%</td><td class="n">3.0%</td><td class="n">45.2%</td></tr>
+<tr><td>dense</td><td class="n">20</td><td class="n">90.3%</td><td class="n">49.4%</td><td class="n">2.1%</td><td class="n">44.8%</td></tr>
+<tr><td>bm25</td><td class="n">5</td><td class="n">53.8%</td><td class="n">63.6%</td><td class="n">2.2%</td><td class="n">35.3%</td></tr>
+<tr><td>bm25</td><td class="n">10</td><td class="n">64.1%</td><td class="n">57.1%</td><td class="n">1.3%</td><td class="n">37.1%</td></tr>
+<tr><td>bm25</td><td class="n">20</td><td class="n">70.7%</td><td class="n">54.1%</td><td class="n">2.6%</td><td class="n">39.0%</td></tr>
+</tbody>
+<caption>Coverage is the share of questions for which every table the reference query touches made it into the prompt. "EX when covered" is accuracy on exactly those questions — the ceiling this retriever could reach if its recall were perfect.</caption>
+</table></div>
+
+<figure class="fig" data-src="retrieval-tradeoff.png">
+<figcaption>The two forces the overall number hides. Raising k retrieves the right tables for more questions and makes the model worse on the questions it already had them for — monotonically, in both retrievers. In the bm25 panel the lines literally cross.
+<span class="src">grpo-coder15 · 300-table pool · n=1,457</span></figcaption>
+</figure>
+
+<div class="finding">
+<p><span class="lbl">Why the aggregate says nothing here</span>Dense reads <span class="num">44.3 → 45.2 → 44.8</span> across a fourfold change in k. Flat — and flat because two opposing effects cancel, not because nothing happens. Coverage climbs 79% → 90% while accuracy on covered questions falls 56% → 49%. bm25 starts so recall-starved (54% coverage at k=5) that the coverage gain dominates and its aggregate climbs 35.3 → 39.0, while its covered-accuracy falls on exactly the same schedule, 64% → 57% → 54%. <strong>Whether enlarging k appears to help depends only on whether the retriever still had recall to gain</strong> — never on distraction going away, which worsens in every condition tested.</p>
+</div>
+
+<figure class="fig" data-src="retrieval.png">
+<figcaption>All eight conditions at their measured levels. The orange bars — accuracy restricted to questions where retrieval succeeded completely — are the honest ceiling for each retriever, and none of them approaches oracle's 68.4%.
+<span class="src">grpo-coder15 · 300-table pool · n=1,457</span></figcaption>
+</figure>
+
+<div class="col">
+<p>So the practical reading is narrower than "retrieve less". The retrieved set size is not a dial worth tuning: it trades coverage against distraction at roughly one-for-one, and the 16.5-point distraction penalty survives every setting. What would actually move this is making the model robust to irrelevant tables — training on cluttered schemas rather than clean ones — which is a training change, not a retrieval change.</p>
+</div>
+
+<!-- ============ 12 ============ -->
+<h2 class="sec" id="serving"><span class="k">12</span> Serving and latency</h2>
+<div class="col">
+<p>The service reuses the voting and retry modules directly rather than reimplementing them. That is the point: a second copy of the clustering or selection logic could drift from the numbers those techniques were measured at, and nothing would say so. A request returns the SQL, the rows, a calibrated confidence, and a timing breakdown.</p>
+<p>Measured on one A10G handling one request at a time — which is what a service does, unlike the evaluation harness that batches sixteen:</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Mode</th><th class="n">Accuracy</th><th class="n">p50</th><th class="n">p95</th><th class="n">p99</th><th class="n">Queries/sec</th></tr></thead>
+<tbody>
+<tr><td>greedy</td><td class="n">69.0%</td><td class="n">2,794 ms</td><td class="n">5,143 ms</td><td class="n">8,590 ms</td><td class="n">0.32</td></tr>
+<tr><td>vote, k=8</td><td class="n">70.0%</td><td class="n">5,865 ms</td><td class="n">10,711 ms</td><td class="n">17,755 ms</td><td class="n">0.15</td></tr>
+<tr class="hi"><td>retry, n=3</td><td class="n">70.0%</td><td class="n">2,866 ms</td><td class="n">11,686 ms</td><td class="n">28,140 ms</td><td class="n">0.25</td></tr>
+</tbody>
+<caption>Accuracy over 100 questions cannot resolve a 3.5-point effect and is not offered as evidence for one — it is a check that the service agrees with the harness (69.0% against 68.1%).</caption>
+</table></div>
+<figure class="fig" data-src="demo.gif">
+<figcaption>Three questions against <code>pilot_1</code>, a test database the model never saw in training, recorded from the running service. The first two are answered correctly and unanimously. The third — "distinct types of planes owned by all pilots" — returns four plausible plane names from the <code>hangar</code> table rather than from pilot ownership, and is wrong. Nothing in the SQL or the output reveals that; the only signal is one sample of eight disagreeing, dropping the badge from high to medium.
+<span class="src">grpo-coder15 on one A10G · k=8 · frames composed from the recorded responses</span></figcaption>
+</figure>
+
+<div class="finding">
+<p><span class="lbl">The tail inverts the ranking</span>Retry's median is indistinguishable from greedy, because most requests never enter the loop — but its p99 is <strong>28 seconds</strong>, 3.3× greedy's tail. Its mean (3,932 ms) hides that completely. Voting costs ~2× uniformly but is far more predictable at the tail. <strong>The mean says retry is cheaper; the tail says voting is safer</strong>, and users experience the tail.</p>
+</div>
+
+<!-- ============ 13 ============ -->
+<h2 class="sec" id="results"><span class="k">13</span> Consolidated results</h2>
+<div class="col">
+<p>Spider test, 2,147 questions, databases never seen in training. Greedy decoding and one attempt per question except where noted.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>System</th><th class="n">EX</th><th class="n">Executes</th><th class="n">Stops cleanly</th><th class="n">Parses</th></tr></thead>
+<tbody>
+<tr><td>original pipeline (CPT→SFT→GRPO)</td><td class="n">6.4%</td><td class="n">35.2%</td><td class="n">89.6%</td><td class="n">78.8%</td></tr>
+<tr><td>untrained base, best prompt</td><td class="n">17.4%</td><td class="n">51.0%</td><td class="n">—</td><td class="n">74.8%</td></tr>
+<tr><td>0.5B — SFT rebuilt</td><td class="n">44.6%</td><td class="n">65.9%</td><td class="n">0.0%</td><td class="n">99.6%</td></tr>
+<tr><td>0.5B — + GRPO</td><td class="n">49.7%</td><td class="n">76.5%</td><td class="n">0.0%</td><td class="n">99.3%</td></tr>
+<tr><td>0.5B — + voting, k=8</td><td class="n">52.7%</td><td class="n">85.9%</td><td class="n">—</td><td class="n">100.0%</td></tr>
+<tr><td>1.5B — same recipe</td><td class="n">67.9%</td><td class="n">88.2%</td><td class="n">100.0%</td><td class="n">99.8%</td></tr>
+<tr><td>1.5B — + GRPO</td><td class="n">68.1%</td><td class="n">90.6%</td><td class="n">100.0%</td><td class="n">99.9%</td></tr>
+<tr><td>Qwen2.5-Coder-7B-Instruct (5× larger)</td><td class="n">71.2%</td><td class="n">89.3%</td><td class="n">97.7%</td><td class="n">95.8%</td></tr>
+<tr class="hi"><td>1.5B — + voting, k=8</td><td class="n">71.5%</td><td class="n">95.1%</td><td class="n">—</td><td class="n">100.0%</td></tr>
+</tbody>
+<caption>The voting row draws level with a model five times larger, but that is 8× the inference — a compute-for-parameters trade, not a free win. Calibration on precision: the greedy pass re-run inside the voting job scored 68.0%, not 68.1%, on identical weights, seed and questions but different batch composition. A tenth of a point is the noise floor.</caption>
+</table></div>
+
+<!-- ============ 14 ============ -->
+<h2 class="sec" id="residual"><span class="k">14</span> Anatomy of the remaining 32%</h2>
+<div class="col">
+<p>A single accuracy number says how often the system is wrong and nothing about how. <code>classify_error</code> already buckets the queries that fail to <em>run</em> — schema hallucination, syntax, timeouts — but at grpo-coder15 the execution rate is 90.6% against 68.1% accuracy, so roughly 22 points of the split produce a perfectly valid query that returns the wrong rows, and that was one undifferentiated bucket. Splitting it means asking how the returned table differs from the reference one, relaxing a single rule at a time.</p>
+</div>
+
+<figure class="fig" data-src="taxonomy-grpo-coder15.png">
+<figcaption>Every failure on Spider test, by kind. Blue ran cleanly and returned the wrong answer; orange never ran at all. The counts sum to 685 against 1,462 correct — 68.1%, which is the headline number arrived at from the other direction.
+<span class="src">grpo-coder15 · Spider test, n=2,147</span></figcaption>
+</figure>
+
+<div class="scroll"><table>
+<thead><tr><th>Failure</th><th class="n">Questions</th><th class="n">Share</th><th>What it means</th></tr></thead>
+<tbody>
+<tr class="hi"><td>unknown_column</td><td class="n">174</td><td class="n">8.1%</td><td>invented a column name — never ran</td></tr>
+<tr><td>wrong_values</td><td class="n">143</td><td class="n">6.7%</td><td>right shape, right row count, wrong contents</td></tr>
+<tr><td>wrong_row_count</td><td class="n">130</td><td class="n">6.1%</td><td>right columns, wrong number of rows</td></tr>
+<tr><td>empty_predicted</td><td class="n">121</td><td class="n">5.6%</td><td>returned nothing; reference returns rows</td></tr>
+<tr><td>wrong_arity</td><td class="n">38</td><td class="n">1.8%</td><td>selected the wrong number of columns</td></tr>
+<tr><td>set_vs_multiset</td><td class="n">35</td><td class="n">1.6%</td><td>identical as sets; duplicate rows differ</td></tr>
+<tr><td>other non-running</td><td class="n">28</td><td class="n">1.3%</td><td>unknown table, ambiguous column, syntax</td></tr>
+<tr><td>extra_when_empty</td><td class="n">12</td><td class="n">0.6%</td><td>reference is empty; prediction is not</td></tr>
+<tr><td>order_only</td><td class="n">4</td><td class="n">0.2%</td><td>identical rows, wrong sort</td></tr>
+</tbody>
+</table></div>
+
+<div class="finding">
+<p><span class="lbl">Two things this changes</span><strong>Schema hallucination is still the largest single failure</strong> at 8.1% — larger than any wrong-answer category, after RL already cut it 29%. The model invents a column name more often than it gets the logic wrong, which points the next round of work at the schema representation rather than at reasoning.</p>
+<p>And <code>set_vs_multiset</code> puts a number on a caveat that was previously a hedge. Those 35 questions are correct as <em>sets</em> and differ only in duplicate rows — exactly the population Spider's official evaluator counts as right and this project's stricter multiset comparison counts as wrong. <strong>Under the official semantics this system scores 69.7%, not 68.1%.</strong> The stricter metric was the right choice, and it costs a measurable 1.6 points rather than an unknown amount.</p>
+</div>
+
+<div class="col">
+<p><code>order_only</code> at 4 questions is worth recording as a non-problem: <code>ORDER BY</code> handling is effectively solved here, and any effort aimed at it would buy at most 0.2 points.</p>
+</div>
+
+<!-- ============ 15 ============ -->
+<h2 class="sec" id="wrong"><span class="k">15</span> What we got wrong</h2>
+<div class="col">
+<p>The project began by measuring its own pipeline at <span class="num down">6.4%</span> against an untrained baseline of 17.4%. Nearly every defect since has shared one shape: <strong>it produced a plausible number rather than an error.</strong> A representative selection, with the wrong version kept beside the corrected one.</p>
+</div>
+
+<div class="entry">
+  <h4>A library rewrote the tokenizer vocabulary</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Unsloth's <code>get_chat_template</code> swapped the ids of two special tokens during training, so every checkpoint carried a corrupted vocabulary.</p>
+  <p><span class="lbl2">Corrected</span>Paired with a standard tokenizer, generation never stops and every score reads near zero for reasons unrelated to the model. Dependency removed entirely; a startup assertion now makes it unreproducible.</p>
+</div>
+
+<div class="entry">
+  <h4>You cannot teach a base model a token it never learned</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Training told the model to end its turn with <code>&lt;|im_end|&gt;</code>. The data was right, loss covered the token, two epochs ran — and the model emits it essentially never.</p>
+  <p><span class="lbl2">Corrected</span>The base carries that token untrained: its embedding sits at the 1.5th percentile of row norms against the 98.4th for the token it does use. LoRA does not train embeddings, and this model ties the embedding to the output head, so the gradient had nowhere to go. A five-second check now runs before adopting any new base.</p>
+</div>
+
+<div class="entry">
+  <h4>An assertion that passed on the broken checkpoint</h4>
+  <p class="was"><span class="lbl2">Wrong</span>The existing stop-token guard compared the tokenizer's configuration to the saved tokenizer's configuration.</p>
+  <p><span class="lbl2">Corrected</span>They agreed with each other, and the weights agreed with neither. <strong>Two configurations agreeing tells you nothing about what the weights do.</strong> The replacement generates text and inspects it.</p>
+</div>
+
+<div class="entry">
+  <h4>Three checkpoints never stopped generating — for three phases</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Not one of 2,147 generations from three models terminated cleanly; each ran to the token cap filling the tail with memorised text.</p>
+  <p><span class="lbl2">Corrected</span>Invisible because the output parser cut at the closing tag and cleaned up every time. Accuracy was unaffected; the cost was 6–8× the compute per evaluation — a 0.5B model took 2,139 s where a <em>larger</em> one took 793 s. Now a column in every results table.</p>
+</div>
+
+<div class="entry">
+  <h4>Prompt truncation deleted the question</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Over-length prompts truncate in whichever direction the tokenizer prefers; the default is from the right, which keeps the schema and removes the question.</p>
+  <p><span class="lbl2">Corrected</span>The reward would then penalise the model for not answering a question it was never shown. Direction set explicitly, plus a pre-flight assertion that nothing truncates at all.</p>
+</div>
+
+<div class="entry">
+  <h4>A dependency that was never declared</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Removing the obsolete training library broke three test modules: <code>peft</code>, which applies the adapters, was only ever installed because that library depended on it.</p>
+  <p><span class="lbl2">Corrected</span>It is imported directly, on the critical path of every number in the project — so a fresh clone had been broken the whole time. An import audit now backs the dependency list.</p>
+</div>
+
+<div class="entry">
+  <h4>Two predictions, both wrong, both instructive</h4>
+  <p class="was"><span class="lbl2">Wrong</span>Predicted +4 points from the retry loop; predicted 58–61% under retrieval.</p>
+  <p><span class="lbl2">Corrected</span>Got +1.1 and 45.2%. The first assumed a repaired query is a correct query; the second assumed accuracy scales with retrieval coverage. Both errors located a specific missing term in the model of the system — which is what stating a prediction beforehand buys you.</p>
+</div>
+
+<!-- ============ 15 ============ -->
+<h2 class="sec" id="limits"><span class="k">16</span> Limitations and next steps</h2>
+<div class="col">
+<p><strong>Multiset comparison reads lower than published Spider numbers</strong>, which use set semantics. Comparisons against the literature need that adjustment.</p>
+<p><strong>The retrieval benchmark is constructed.</strong> A collision-free pool of 300 tables is a defensible stand-in for a warehouse, but it is not one, and it covers 68% of the test split rather than all of it.</p>
+<p><strong>The confidence calibration is from a single measurement</strong> — one checkpoint, one k, one benchmark. It should be recalibrated per deployment rather than trusted as a constant.</p>
+<p><strong>Retry and voting are not composed.</strong> Retrying each sampled candidate and then voting is the natural combination and is not implemented; the batched retry design does not distinguish the greedy candidate from a sampled one, which voting's ordering depends on.</p>
+</div>
+<div class="col">
+<p>What the measurements point at next, in order of expected value:</p>
+<p><strong>Prune the retrieved set rather than enlarge it.</strong> Distraction is the dominant retrieval cost, so a smaller k or a second-stage filter before the prompt. The oracle condition proves 68.4% is available if the schema arrives clean.</p>
+<p><strong>A learned verifier</strong> for the 3.6% where a correct candidate is generated and not selected. Heuristics are measured dead on arrival there.</p>
+<p><strong>Continuous batching</strong> for the 2.8-second median, which is the single biggest serving weakness.</p>
+<p><strong>Not trajectory-level RL</strong>, the original plan. The ceiling is not repair rate but that only 37% of repairs are correct, and 56% of training groups already produce no gradient at 1.5B — trajectory training makes that worse.</p>
+</div>
+
+<!-- ============ 17 ============ -->
+<h2 class="sec" id="provenance"><span class="k">17</span> Provenance</h2>
+<div class="col">
+<p>Every headline number above, and the file it came from. Two denominators are in play and mixing them is the easiest mistake to make here: the full test split is <strong>2,147</strong> questions, while anything involving the retrieval pool is restricted to the <strong>1,457</strong> questions whose tables survive the collision-free pooling. A retrieval figure compared against a full-split figure is comparing two different benchmarks.</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Number</th><th>What it is</th><th class="n">n</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>71.5% / 72.1%</td><td>vote@8 / vote@16</td><td class="n">2,147</td><td><code>summary-grpo-coder15-vote16.txt</code></td></tr>
+<tr><td>68.1%</td><td>greedy, the single-shot number</td><td class="n">2,147</td><td><code>summary.txt</code> → <code>grpo-coder15</code></td></tr>
+<tr><td>71.2%</td><td>Qwen2.5-Coder-7B-Instruct</td><td class="n">2,147</td><td><code>summary.txt</code> → <code>coder-7b</code></td></tr>
+<tr><td>85.9%</td><td>accuracy when 16 of 16 agree</td><td class="n">1,405</td><td><code>analysis/vote_curve.json</code></td></tr>
+<tr><td>76.9%</td><td>pass@16, the selection ceiling</td><td class="n">2,147</td><td><code>analysis/vote_curve.json</code></td></tr>
+<tr><td>68.4% / 63.5%</td><td>oracle / gold schema controls</td><td class="n">1,457</td><td><code>analysis/retrieval-oracle.json</code>, <code>-gold</code></td></tr>
+<tr><td>45.2%</td><td>dense@10 end to end</td><td class="n">1,457</td><td><code>analysis/retrieval-dense10.json</code></td></tr>
+<tr><td>16.5 / 6.7 pts</td><td>distraction / absence at dense@10</td><td class="n">1,457</td><td>derived: 68.4−51.9, 51.9−45.2</td></tr>
+<tr><td>8.1%</td><td>unknown_column, the top failure</td><td class="n">2,147</td><td><code>analysis/taxonomy-grpo-coder15.json</code></td></tr>
+<tr><td>1.6%</td><td>set_vs_multiset — the metric's own cost</td><td class="n">2,147</td><td><code>analysis/taxonomy-grpo-coder15.json</code></td></tr>
+<tr><td>44.6% → 49.7%</td><td>GRPO on the 0.5B base</td><td class="n">2,147</td><td><code>summary.txt</code> → <code>sft-spider</code>, <code>grpo-spider</code></td></tr>
+</tbody>
+<caption>Paths are relative to <code>results/</code>. Every JSON under <code>results/analysis/</code> carries its own <code>provenance</code> block — model, split, n, seed, git commit and generation timestamp — written by the script that produced it, so a number can always be traced to the run that made it rather than to this table.</caption>
+</table></div>
+
+<div class="col">
+<p>Reproducing any figure is two commands: the analysis script that emits the JSON, then <code>python -m analysis.charts</code>, which renders whatever inputs exist and skips the rest. The expensive half — executing tens of thousands of queries against SQLite, re-running a retriever over 300 tables — happens once; rendering is free and repeatable.</p>
+</div>
+
+<footer>
+  <p>All numbers are Spider test, 2,147 held-out questions over databases absent from training, unless a section states otherwise. Differences are checked with a paired significance test wherever the comparison admits one, and reported as fixed/broken counts rather than net deltas alone. 338 tests, weighted toward the places where being wrong yields a believable number instead of a crash.</p>
+</footer>
+
+</div>

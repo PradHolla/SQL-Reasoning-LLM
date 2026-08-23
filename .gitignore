@@ -47,3 +47,7 @@ BLUEPRINT.md
 # see infra/run.sh) but they are machine-local and must never be committed.
 logs/
 .venv-teacher/
+
+# Built artifact: source is committed, the multi-MB build with embedded
+# base64 figures is not — rebuild with `python artifact/build.py`.
+artifact/build/
