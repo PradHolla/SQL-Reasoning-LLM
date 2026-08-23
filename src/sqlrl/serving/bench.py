@@ -17,10 +17,11 @@ script.
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import statistics
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from sqlrl.eval.metrics import score_example
@@ -181,6 +182,10 @@ def main() -> int:
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--no-progress", action="store_true",
                         help="suppress the per-10-request progress lines")
+    parser.add_argument("--json", type=Path, default=None,
+                        help="also write the table as JSON. The printed table is "
+                             "for reading; anything that plots these numbers should "
+                             "read this instead of parsing ASCII columns.")
     args = parser.parse_args()
 
     modes = [parse_mode(name) for name in args.modes.split(",")]
@@ -207,6 +212,22 @@ def main() -> int:
 
     print()
     print(format_table(rows))
+
+    if args.json:
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(json.dumps({
+            "kind": "latency",
+            "model": args.model,
+            "split": args.split,
+            "n": len(sample),
+            "seed": args.seed,
+            "temperature": args.temperature,
+            "max_new_tokens": args.max_new_tokens,
+            "batch_size": args.batch_size,
+            "device": service.backend.device,
+            "modes": {label: asdict(stats) for label, stats in rows},
+        }, indent=1))
+        print(f"  wrote {args.json}")
     return 0
 
 

@@ -42,7 +42,8 @@ from sqlrl.eval.prompts import Prompt, chat_prompt, extract_sql, render_schema
 from sqlrl.eval.retry import run_retry
 from sqlrl.eval.run_eval import MODELS
 
-__all__ = ["Answer", "CALIBRATION", "Confidence", "SqlService", "confidence"]
+__all__ = ["Answer", "CALIBRATION", "Confidence", "SqlService", "confidence",
+           "winner_agreement"]
 
 
 @dataclass(frozen=True)
@@ -152,9 +153,15 @@ def _execute(raw: str, db_path: Path, timeout: float) -> tuple[voting.Candidate,
     return voting.Candidate(raw=raw, sql=sql, status=result.status, rows=rows), result.error
 
 
-def _winner_agreement(candidates: list[voting.Candidate], winner_index: int) -> int:
+def winner_agreement(candidates: list[voting.Candidate], winner_index: int) -> int:
     """Size of the cluster ``voting.select`` chose, i.e. how many of the
     candidates agreed with the winning answer.
+
+    Public because the calibration numbers in ``CALIBRATION`` are recomputed
+    from saved ballots by ``analysis/vote_curve.py``, and a second definition
+    of "how many agreed" there could drift from this one without either side
+    noticing -- which is the exact failure the table's own docstring warns
+    about, one level down.
 
     Re-derives clustering with ``voting.cluster`` rather than trusting a
     count computed some other way, so "agreement" can never drift from what
@@ -364,7 +371,7 @@ class SqlService:
         candidates = [candidate for candidate, _ in executed]
         winner_index = voting.select(candidates, demote_empty=True)
         winner, winner_error = executed[winner_index]
-        agreement = _winner_agreement(candidates, winner_index)
+        agreement = winner_agreement(candidates, winner_index)
 
         return _Outcome(
             sql=winner.sql,
