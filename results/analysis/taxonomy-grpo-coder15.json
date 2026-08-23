@@ -1,0 +1,34 @@
+{
+ "kind": "error_taxonomy",
+ "scored": 2147,
+ "correct": 1462,
+ "accuracy": 0.6809501630181649,
+ "executed_wrong": {
+  "wrong_values": 143,
+  "wrong_row_count": 130,
+  "empty_predicted": 121,
+  "wrong_arity": 38,
+  "set_vs_multiset": 35,
+  "extra_when_empty": 12,
+  "order_only": 4
+ },
+ "did_not_run": {
+  "unknown_column": 174,
+  "other": 11,
+  "unknown_table": 9,
+  "ambiguous_column": 6,
+  "syntax": 2
+ },
+ "executed_wrong_total": 483,
+ "did_not_run_total": 202,
+ "provenance": {
+  "source": "results/test/grpo-coder15.json",
+  "model": "grpo-coder15",
+  "split": "test",
+  "n": 2147,
+  "seed": 3407,
+  "git_commit": "a4cd985",
+  "generated_at": "2026-08-16T02:08:18+00:00",
+  "timeout": 5.0
+ }
+}

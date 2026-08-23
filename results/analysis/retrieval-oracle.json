@@ -1,0 +1,29 @@
+{
+ "kind": "retrieval_split",
+ "mode": "oracle",
+ "top_k": 0,
+ "overall_ex": 0.6842827728208648,
+ "scored": 1457,
+ "coverage_at_k": 1.0,
+ "mean_recall_at_k": 1.0,
+ "cells": {
+  "covered_correct": 997,
+  "covered_wrong": 460,
+  "uncovered_correct": 0,
+  "uncovered_wrong": 0
+ },
+ "ex_covered": 0.6842827728208648,
+ "ex_uncovered": 0.0,
+ "provenance": {
+  "source": "results/test/grpo-coder15-retr-oracle.json",
+  "model": "grpo-coder15",
+  "split": "test",
+  "n": 1457,
+  "pool_tables": 300,
+  "pool_questions": 1457,
+  "seed": 3407,
+  "git_commit": "d1752a5",
+  "generated_at": "2026-08-17T17:34:36+00:00",
+  "timeout": 5.0
+ }
+}

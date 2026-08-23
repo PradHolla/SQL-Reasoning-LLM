@@ -1,0 +1,29 @@
+{
+ "kind": "retrieval_split",
+ "mode": "bm25",
+ "top_k": 5,
+ "overall_ex": 0.35277968428277284,
+ "scored": 1457,
+ "coverage_at_k": 0.5380919698009609,
+ "mean_recall_at_k": 0.638984214138641,
+ "cells": {
+  "covered_correct": 499,
+  "covered_wrong": 285,
+  "uncovered_correct": 15,
+  "uncovered_wrong": 658
+ },
+ "ex_covered": 0.6364795918367347,
+ "ex_uncovered": 0.022288261515601784,
+ "provenance": {
+  "source": "results/test/grpo-coder15-retr-bm255.json",
+  "model": "grpo-coder15",
+  "split": "test",
+  "n": 1457,
+  "pool_tables": 300,
+  "pool_questions": 1457,
+  "seed": 3407,
+  "git_commit": "380f228",
+  "generated_at": "2026-08-23T17:44:17+00:00",
+  "timeout": 5.0
+ }
+}

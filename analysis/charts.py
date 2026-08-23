@@ -247,6 +247,71 @@ def chart_retrieval(datasets: list[dict], out: Path) -> Path:
     return _save(fig, out)
 
 
+def chart_retrieval_tradeoff(datasets: list[dict], out: Path) -> Path:
+    """The two forces that overall accuracy hides.
+
+    Raising k retrieves the gold tables for more questions (coverage rises) and
+    makes the model worse on the questions it already had them for (accuracy on
+    the covered set falls). Plotting only the aggregate shows a flat line for
+    dense and a rising one for bm25, and neither says why. Small multiples --
+    one panel per retriever, two series each -- because four lines on shared
+    axes would need four categorical slots the palette will not give a
+    line chart.
+    """
+    by_mode: dict[str, list[dict]] = {}
+    for d in datasets:
+        if d["mode"] in ("bm25", "dense"):
+            by_mode.setdefault(d["mode"], []).append(d)
+    for runs in by_mode.values():
+        runs.sort(key=lambda d: d["top_k"])
+    if not by_mode:
+        return out
+
+    order = [m for m in ("dense", "bm25") if m in by_mode]
+    fig, axes = plt.subplots(1, len(order), figsize=(4.9 * len(order), 5),
+                             sharey=True)
+    axes = axes if len(order) > 1 else [axes]
+
+    for ax, mode in zip(axes, order):
+        _frame(ax)
+        runs = by_mode[mode]
+        ks = [d["top_k"] for d in runs]
+        coverage = [d["coverage_at_k"] for d in runs]
+        covered = [d["ex_covered"] for d in runs]
+
+        ax.plot(ks, coverage, color=BLUE, linewidth=2, marker="o", markersize=8,
+                markeredgecolor=SURFACE, markeredgewidth=2,
+                label="questions with every gold table retrieved")
+        ax.plot(ks, covered, color=ORANGE, linewidth=2, marker="o", markersize=8,
+                markeredgecolor=SURFACE, markeredgewidth=2,
+                label="accuracy on those questions")
+
+        for series, colour in ((coverage, BLUE), (covered, ORANGE)):
+            for k, value in zip(ks, series):
+                ax.annotate(f"{value:.0%}", xy=(k, value), xytext=(0, 9),
+                            textcoords="offset points", ha="center",
+                            fontsize=9.5, color=colour, fontweight="bold")
+
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(ks)
+        ax.set_xticklabels([str(k) for k in ks])
+        ax.set_xlabel(f"tables retrieved ({mode})")
+        ax.margins(x=0.18, y=0.20)
+        ax.yaxis.set_major_formatter(_pct())
+
+    axes[0].set_ylabel("share of questions / accuracy")
+    axes[0].legend(frameon=False, fontsize=9.5, loc="lower left")
+    fig.suptitle("Retrieving more finds more tables and answers fewer questions",
+                 x=0.0, ha="left", fontsize=13, fontweight="bold", y=1.02)
+
+    prov = datasets[0]["provenance"]
+    fig.text(0.0, -0.04,
+             f"{prov['model']}  ·  {prov['pool_tables']}-table pool  ·  "
+             f"n={prov['pool_questions']}  ·  {prov['git_commit']}",
+             fontsize=9, color=INK_SOFT)
+    return _save(fig, out)
+
+
 def chart_latency_percentiles(data: dict, out: Path) -> Path:
     """p50/p95/p99 per mode. Ordered magnitude, so one hue darkening."""
     modes = list(data["modes"].items())
@@ -372,6 +437,7 @@ def render_all(source: Path, out_dir: Path, reference: float | None,
     retrieval = [d for d in (_load(p) for p in sorted(source.glob("retrieval-*.json"))) if d]
     if retrieval:
         written.append(chart_retrieval(retrieval, out_dir / "retrieval.png"))
+        written.append(chart_retrieval_tradeoff(retrieval, out_dir / "retrieval-tradeoff.png"))
 
     latency = _load(source / "latency.json")
     if latency:

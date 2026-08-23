@@ -1,0 +1,29 @@
+{
+ "kind": "retrieval_split",
+ "mode": "dense",
+ "top_k": 5,
+ "overall_ex": 0.4426904598490048,
+ "scored": 1457,
+ "coverage_at_k": 0.7920384351407,
+ "mean_recall_at_k": 0.8810912834591627,
+ "cells": {
+  "covered_correct": 642,
+  "covered_wrong": 512,
+  "uncovered_correct": 3,
+  "uncovered_wrong": 300
+ },
+ "ex_covered": 0.5563258232235702,
+ "ex_uncovered": 0.009900990099009901,
+ "provenance": {
+  "source": "results/test/grpo-coder15-retr-dense5.json",
+  "model": "grpo-coder15",
+  "split": "test",
+  "n": 1457,
+  "pool_tables": 300,
+  "pool_questions": 1457,
+  "seed": 3407,
+  "git_commit": "380f228",
+  "generated_at": "2026-08-23T17:23:03+00:00",
+  "timeout": 5.0
+ }
+}
