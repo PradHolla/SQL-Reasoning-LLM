@@ -158,11 +158,18 @@ def chart_calibration(data: dict, out: Path) -> Path:
     if not buckets:
         return out
     buckets = sorted(buckets, key=lambda b: b["agreement"])
-    labels = [f"{b['agreement']}/{b['of']}\nn={b['n']}" for b in buckets]
+    # The "/16" is constant across every bar, so it belongs in the axis label,
+    # not repeated 17 times where it doubles each tick's width.
+    labels = [f"{b['agreement']}\nn={b['n']}" for b in buckets]
     acc = [b["accuracy"] for b in buckets]
     cover = [b["coverage"] for b in buckets]
+    of = buckets[0]["of"]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # Width tracks the bucket count. At k=8 this is 8 bars in 8 inches; at k=16
+    # it is 17, and a fixed canvas collapses the tick labels into each other.
+    width = max(8.0, 0.66 * len(buckets))
+    label_size = 10 if len(buckets) <= 9 else 8.5
+    fig, ax = plt.subplots(figsize=(width, 5))
     _frame(ax)
     bars = ax.bar(labels, acc, color=BLUE, width=0.62)
     # 4px-equivalent rounded data-end, anchored to the baseline.
@@ -170,22 +177,27 @@ def chart_calibration(data: dict, out: Path) -> Path:
         bar.set_joinstyle("round")
 
     for bar, a in zip(bars, acc):
-        ax.annotate(f"{a:.1%}", xy=(bar.get_x() + bar.get_width() / 2, a),
+        ax.annotate(f"{a:.0%}" if len(buckets) > 9 else f"{a:.1%}",
+                    xy=(bar.get_x() + bar.get_width() / 2, a),
                     xytext=(0, 5), textcoords="offset points",
-                    ha="center", fontsize=10, fontweight="bold", color=INK)
+                    ha="center", fontsize=label_size, fontweight="bold", color=INK)
 
     # Selective direct label: the bucket holding most of the traffic is the
     # only one whose coverage changes what you would do about it.
     widest = max(range(len(cover)), key=lambda i: cover[i])
+    # Leader starts ABOVE the bar's own value label, not at the bar top -- run
+    # from the bar it would draw straight through the number it is pointing at.
     ax.annotate(f"{cover[widest]:.0%} of all questions land here",
-                xy=(bars[widest].get_x() + bars[widest].get_width() / 2, acc[widest]),
-                xytext=(0, 34), textcoords="offset points", ha="center",
+                xy=(bars[widest].get_x() + bars[widest].get_width() / 2,
+                    acc[widest] * 1.10),
+                xytext=(0, 26), textcoords="offset points", ha="center",
                 fontsize=10, color=INK_SOFT,
                 arrowprops=dict(arrowstyle="-", color=GRID, linewidth=1.2))
 
     ax.yaxis.set_major_formatter(_pct())
     ax.set_ylim(0, max(acc) * 1.34)
-    ax.set_xlabel("samples agreeing with the answer")
+    ax.tick_params(axis="x", labelsize=label_size)
+    ax.set_xlabel(f"samples agreeing with the answer (out of {of})")
     ax.set_ylabel("execution accuracy")
     ax.set_title("Only near-unanimous votes carry a usable signal")
 

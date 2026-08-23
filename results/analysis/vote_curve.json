@@ -1,0 +1,208 @@
+{
+ "kind": "vote_curve",
+ "points": [
+  {
+   "k": 1,
+   "vote_ex": 0.6809501630181649,
+   "vote_ex_clean": 0.678554669169404,
+   "oracle_ex": 0.6809501630181649,
+   "selection_gap": 0.0,
+   "structural_match": 0.47275267815556593,
+   "execution_rate": 0.9059152305542617,
+   "scored": 2147
+  },
+  {
+   "k": 2,
+   "vote_ex": 0.6921285514671635,
+   "vote_ex_clean": 0.689816987329892,
+   "oracle_ex": 0.7009781089892874,
+   "selection_gap": 0.008849557522123908,
+   "structural_match": 0.47554727526781554,
+   "execution_rate": 0.9273404750815091,
+   "scored": 2147
+  },
+  {
+   "k": 4,
+   "vote_ex": 0.7061015370284117,
+   "vote_ex_clean": 0.7038948850305021,
+   "oracle_ex": 0.7284583139264089,
+   "selection_gap": 0.0223567768979972,
+   "structural_match": 0.48113646949231487,
+   "execution_rate": 0.9413134606427573,
+   "scored": 2147
+  },
+  {
+   "k": 8,
+   "vote_ex": 0.7168141592920354,
+   "vote_ex_clean": 0.7146879399343031,
+   "oracle_ex": 0.7536096879366558,
+   "selection_gap": 0.036795528644620434,
+   "structural_match": 0.48299953423381464,
+   "execution_rate": 0.9548206800186306,
+   "scored": 2147
+  },
+  {
+   "k": 16,
+   "vote_ex": 0.720540288775035,
+   "vote_ex_clean": 0.7184420459877991,
+   "oracle_ex": 0.7685142058686539,
+   "selection_gap": 0.04797391709361898,
+   "structural_match": 0.4816022356776898,
+   "execution_rate": 0.9576152771308803,
+   "scored": 2147
+  }
+ ],
+ "calibration": [
+  {
+   "agreement": 16,
+   "of": 16,
+   "correct": 1207,
+   "n": 1405,
+   "accuracy": 0.8590747330960854,
+   "coverage": 0.6544014904517932
+  },
+  {
+   "agreement": 15,
+   "of": 16,
+   "correct": 65,
+   "n": 93,
+   "accuracy": 0.6989247311827957,
+   "coverage": 0.04331625523986959
+  },
+  {
+   "agreement": 14,
+   "of": 16,
+   "correct": 47,
+   "n": 84,
+   "accuracy": 0.5595238095238095,
+   "coverage": 0.03912435957149511
+  },
+  {
+   "agreement": 13,
+   "of": 16,
+   "correct": 30,
+   "n": 55,
+   "accuracy": 0.5454545454545454,
+   "coverage": 0.025617140195621797
+  },
+  {
+   "agreement": 12,
+   "of": 16,
+   "correct": 24,
+   "n": 42,
+   "accuracy": 0.5714285714285714,
+   "coverage": 0.019562179785747556
+  },
+  {
+   "agreement": 11,
+   "of": 16,
+   "correct": 22,
+   "n": 46,
+   "accuracy": 0.4782608695652174,
+   "coverage": 0.02142524452724732
+  },
+  {
+   "agreement": 10,
+   "of": 16,
+   "correct": 23,
+   "n": 48,
+   "accuracy": 0.4791666666666667,
+   "coverage": 0.022356776897997206
+  },
+  {
+   "agreement": 9,
+   "of": 16,
+   "correct": 16,
+   "n": 37,
+   "accuracy": 0.43243243243243246,
+   "coverage": 0.017233348858872847
+  },
+  {
+   "agreement": 8,
+   "of": 16,
+   "correct": 14,
+   "n": 34,
+   "accuracy": 0.4117647058823529,
+   "coverage": 0.015836050302748022
+  },
+  {
+   "agreement": 7,
+   "of": 16,
+   "correct": 15,
+   "n": 34,
+   "accuracy": 0.4411764705882353,
+   "coverage": 0.015836050302748022
+  },
+  {
+   "agreement": 6,
+   "of": 16,
+   "correct": 14,
+   "n": 28,
+   "accuracy": 0.5,
+   "coverage": 0.01304145319049837
+  },
+  {
+   "agreement": 5,
+   "of": 16,
+   "correct": 9,
+   "n": 27,
+   "accuracy": 0.3333333333333333,
+   "coverage": 0.012575687005123428
+  },
+  {
+   "agreement": 4,
+   "of": 16,
+   "correct": 12,
+   "n": 23,
+   "accuracy": 0.5217391304347826,
+   "coverage": 0.01071262226362366
+  },
+  {
+   "agreement": 3,
+   "of": 16,
+   "correct": 12,
+   "n": 26,
+   "accuracy": 0.46153846153846156,
+   "coverage": 0.012109920819748486
+  },
+  {
+   "agreement": 2,
+   "of": 16,
+   "correct": 19,
+   "n": 41,
+   "accuracy": 0.4634146341463415,
+   "coverage": 0.019096413600372612
+  },
+  {
+   "agreement": 1,
+   "of": 16,
+   "correct": 18,
+   "n": 33,
+   "accuracy": 0.5454545454545454,
+   "coverage": 0.015370284117373078
+  },
+  {
+   "agreement": 0,
+   "of": 16,
+   "correct": 0,
+   "n": 91,
+   "accuracy": 0.0,
+   "coverage": 0.0423847228691197
+  }
+ ],
+ "provenance": {
+  "source": "results/test/grpo-coder15-vote16.json",
+  "model": "grpo-coder15",
+  "split": "test",
+  "n": 2147,
+  "samples": 16,
+  "temperature": 0.8,
+  "top_p": 0.95,
+  "seed": 3407,
+  "git_commit": "380f228",
+  "generated_at": "2026-08-23T20:28:05+00:00",
+  "generation_seconds": 8827.9,
+  "scored_seconds": 222.4,
+  "timeout": 5.0
+ }
+}

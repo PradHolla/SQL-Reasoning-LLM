@@ -1,0 +1,116 @@
+{
+ "kind": "demo_transcript",
+ "model": "grpo-coder15",
+ "device": "cuda",
+ "samples": 8,
+ "max_attempts": 1,
+ "entries": [
+  {
+   "question": "How many different places have some plane?",
+   "db_id": "pilot_1",
+   "answer": {
+    "sql": "SELECT count(DISTINCT location) FROM hangar",
+    "rows": [
+     [
+      4
+     ]
+    ],
+    "status": "ok",
+    "error": null,
+    "confidence": {
+     "agreement": 8,
+     "samples": 8,
+     "level": "high",
+     "expected_accuracy": 0.845
+    },
+    "attempts": 1,
+    "timings_ms": {
+     "generate": 5037.212421000049,
+     "execute": 1.9189939998796035,
+     "total": 5044.679789999918
+    }
+   },
+   "wall_seconds": 5.05
+  },
+  {
+   "question": "What is all the information about pilots who are younger than 30 ?",
+   "db_id": "pilot_1",
+   "answer": {
+    "sql": "SELECT * FROM PilotSkills WHERE age < 30",
+    "rows": [
+     [
+      "Celko",
+      "Piper Cub",
+      23
+     ],
+     [
+      "Jones",
+      "B-52 Bomber",
+      24
+     ],
+     [
+      "Smith",
+      "B-52 Bomber",
+      26
+     ],
+     [
+      "Wilson",
+      "F-14 Fighter",
+      24
+     ]
+    ],
+    "status": "ok",
+    "error": null,
+    "confidence": {
+     "agreement": 8,
+     "samples": 8,
+     "level": "high",
+     "expected_accuracy": 0.845
+    },
+    "attempts": 1,
+    "timings_ms": {
+     "generate": 4694.892904999961,
+     "execute": 1.8341709999276645,
+     "total": 4701.017343999865
+    }
+   },
+   "wall_seconds": 4.7
+  },
+  {
+   "question": "List all distinct types of planes owned by all pilots in alphabetic order?",
+   "db_id": "pilot_1",
+   "answer": {
+    "sql": "SELECT DISTINCT plane_name FROM hangar ORDER BY plane_name",
+    "rows": [
+     [
+      "B-1 Bomber"
+     ],
+     [
+      "B-52 Bomber"
+     ],
+     [
+      "F-14 Fighter"
+     ],
+     [
+      "Piper Cub"
+     ]
+    ],
+    "status": "ok",
+    "error": null,
+    "confidence": {
+     "agreement": 7,
+     "samples": 8,
+     "level": "medium",
+     "expected_accuracy": 0.561
+    },
+    "attempts": 1,
+    "timings_ms": {
+     "generate": 4902.099313000008,
+     "execute": 1.93032300012419,
+     "total": 4907.157607000045
+    }
+   },
+   "wall_seconds": 4.91
+  }
+ ]
+}
