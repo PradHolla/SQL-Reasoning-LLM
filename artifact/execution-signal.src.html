@@ -628,24 +628,38 @@ oracle                              68.4%
 <h2 class="sec" id="serving"><span class="k">12</span> Serving and latency</h2>
 <div class="col">
 <p>The service reuses the voting and retry modules directly rather than reimplementing them. That is the point: a second copy of the clustering or selection logic could drift from the numbers those techniques were measured at, and nothing would say so. A request returns the SQL, the rows, a calibrated confidence, and a timing breakdown.</p>
-<p>Measured on one A10G handling one request at a time — which is what a service does, unlike the evaluation harness that batches sixteen:</p>
+<p>Measured on one A10G handling one request at a time — which is what a service does, unlike the evaluation harness that batches sixteen. Over the full split, so the accuracy column is evidence rather than a sanity check: 6,650 seconds for the greedy pass, 14,022 for voting, 8,600 for retry, about eleven GPU-hours in total.</p>
 </div>
 <div class="scroll"><table>
-<thead><tr><th>Mode</th><th class="n">Accuracy</th><th class="n">p50</th><th class="n">p95</th><th class="n">p99</th><th class="n">Queries/sec</th></tr></thead>
+<thead><tr><th>Mode</th><th class="n">Accuracy</th><th class="n">p50</th><th class="n">p95</th><th class="n">p99</th><th class="n">Mean</th><th class="n">Queries/sec</th></tr></thead>
 <tbody>
-<tr><td>greedy</td><td class="n">69.0%</td><td class="n">2,794 ms</td><td class="n">5,143 ms</td><td class="n">8,590 ms</td><td class="n">0.32</td></tr>
-<tr><td>vote, k=8</td><td class="n">70.0%</td><td class="n">5,865 ms</td><td class="n">10,711 ms</td><td class="n">17,755 ms</td><td class="n">0.15</td></tr>
-<tr class="hi"><td>retry, n=3</td><td class="n">70.0%</td><td class="n">2,866 ms</td><td class="n">11,686 ms</td><td class="n">28,140 ms</td><td class="n">0.25</td></tr>
+<tr><td>greedy</td><td class="n">67.9%</td><td class="n">2,652 ms</td><td class="n">5,100 ms</td><td class="n">7,162 ms</td><td class="n">3,088 ms</td><td class="n">0.32</td></tr>
+<tr class="hi"><td>vote, k=8</td><td class="n">71.3%</td><td class="n">5,650 ms</td><td class="n">10,789 ms</td><td class="n">15,272 ms</td><td class="n">6,522 ms</td><td class="n">0.15</td></tr>
+<tr><td>retry, n=3</td><td class="n">68.9%</td><td class="n">2,714 ms</td><td class="n">9,739 ms</td><td class="n">16,042 ms</td><td class="n">3,777 ms</td><td class="n">0.26</td></tr>
 </tbody>
-<caption>Accuracy over 100 questions cannot resolve a 3.5-point effect and is not offered as evidence for one — it is a check that the service agrees with the harness (69.0% against 68.1%).</caption>
+<caption>All 2,147 questions, one at a time. The accuracy column now reproduces the harness independently — +3.4 for voting and +1.0 for retry against the harness's +3.5 and +1.1, from a different code path with different batching.</caption>
 </table></div>
+
+<figure class="fig" data-src="latency-accuracy.png">
+<figcaption>What each technique costs for what it buys. Retry earns a point of accuracy for roughly nothing at the median; voting earns three and a half for 2.1× the wait. The x-axis is the median only — it says nothing about the tail, which is the next chart and the reason this one is not the whole story.
+<span class="src">grpo-coder15 on one A10G · Spider test, n=2,147</span></figcaption>
+</figure>
+
+<figure class="fig" data-src="latency-percentiles.png">
+<figcaption>The same three modes by percentile. Retry's median is indistinguishable from greedy because most requests never enter the loop at all; its p95 is 3.6× its own median and its p99 is 5.9×. Voting costs about 2.1× at every percentile — more expensive typically, far more predictable.
+<span class="src">grpo-coder15 on one A10G · Spider test, n=2,147</span></figcaption>
+</figure>
 <figure class="fig" data-src="demo.gif">
 <figcaption>Three questions against <code>pilot_1</code>, a test database the model never saw in training, recorded from the running service. The first two are answered correctly and unanimously. The third — "distinct types of planes owned by all pilots" — returns four plausible plane names from the <code>hangar</code> table rather than from pilot ownership, and is wrong. Nothing in the SQL or the output reveals that; the only signal is one sample of eight disagreeing, dropping the badge from high to medium.
 <span class="src">grpo-coder15 on one A10G · k=8 · frames composed from the recorded responses</span></figcaption>
 </figure>
 
 <div class="finding">
-<p><span class="lbl">The tail inverts the ranking</span>Retry's median is indistinguishable from greedy, because most requests never enter the loop — but its p99 is <strong>28 seconds</strong>, 3.3× greedy's tail. Its mean (3,932 ms) hides that completely. Voting costs ~2× uniformly but is far more predictable at the tail. <strong>The mean says retry is cheaper; the tail says voting is safer</strong>, and users experience the tail.</p>
+<p><span class="lbl">Where each technique keeps its cost</span>Retry's median is indistinguishable from greedy — 2,714 ms against 2,652 — because most requests never enter the loop. All of its cost sits in the tail, and its mean of 3,777 ms hides that from both directions at once: 40% above a median that reflects most requests, and 76% below a p99 that reflects the ones a user complains about. Voting is the opposite shape: 2.1× more expensive at the median and only 2.7× its own median at p99, so what you measure in staging is what you get in production.</p>
+</div>
+
+<div class="finding">
+<p><span class="lbl">And the earlier version of this section was wrong</span>Measured over 100 questions, retry's p99 read <span class="num down">28,140 ms</span> and this section claimed the tail "inverts the ranking" — retry catastrophic where voting was merely expensive. Over 2,147 it is <span class="num">16,042 ms</span>, and at p95 retry is <em>cheaper</em> than voting (9,739 against 10,789). <strong>A p99 over 100 samples is the single slowest request in the sample</strong>, which makes it an anecdote with a statistic's name. The direction of the original finding survives — retry concentrates its cost in the tail and the mean conceals it — but the 3.3× figure was one unlucky request, and the ranking it implied does not hold.</p>
 </div>
 
 <!-- ============ 13 ============ -->
@@ -787,6 +801,8 @@ oracle                              68.4%
 <tr><td>8.1%</td><td>unknown_column, the top failure</td><td class="n">2,147</td><td><code>analysis/taxonomy-grpo-coder15.json</code></td></tr>
 <tr><td>1.6%</td><td>set_vs_multiset — the metric's own cost</td><td class="n">2,147</td><td><code>analysis/taxonomy-grpo-coder15.json</code></td></tr>
 <tr><td>44.6% → 49.7%</td><td>GRPO on the 0.5B base</td><td class="n">2,147</td><td><code>summary.txt</code> → <code>sft-spider</code>, <code>grpo-spider</code></td></tr>
+<tr><td>2,652 / 5,650 ms</td><td>p50 greedy / vote8, served</td><td class="n">2,147</td><td><code>analysis/latency.json</code></td></tr>
+<tr><td>16,042 ms</td><td>retry p99 — the tail</td><td class="n">2,147</td><td><code>analysis/latency.json</code></td></tr>
 </tbody>
 <caption>Paths are relative to <code>results/</code>. Every JSON under <code>results/analysis/</code> carries its own <code>provenance</code> block — model, split, n, seed, git commit and generation timestamp — written by the script that produced it, so a number can always be traced to the run that made it rather than to this table.</caption>
 </table></div>
