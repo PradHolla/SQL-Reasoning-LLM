@@ -161,6 +161,8 @@ def s01_cover(fig):
                  color=INK, va="top")
         fig.text(_x(col), _y(y + 0.42), small.upper(), fontproperties=MONO,
                  fontsize=8, color=INK_FAINT, va="top")
+    fig.text(_x(M), _y(H - M - 0.62), "Pradhyumna Holla",
+             fontproperties=SERIF, fontsize=14, color=INK, va="top")
     fig.text(_x(M), _y(H - M - 0.30), "Full technical write-up in progress",
              fontproperties=MONO, fontsize=9.5, color=ACCENT, va="top")
 
@@ -198,24 +200,33 @@ def s03_decision(fig):
     y = _rule(fig, y + 0.24)
     y = _text(fig, M, y,
               "The obvious way to grade generated SQL is to compare its text "
-              "against a reference query. That marks two identical answers "
-              "wrong for choosing a different join order.",
-              size=14.5, font=SERIF, color=INK_SOFT, wrap=52) + 0.22
+              "against a known-correct query. That marks two identical "
+              "answers wrong for writing their joins in a different order.",
+              size=13.5, font=SERIF, color=INK_SOFT, wrap=58) + 0.20
     y = _text(fig, M, y,
-              "Instead: run both queries against the real database, and "
-              "compare the rows that come back. Two queries that look nothing "
-              "alike and return the same answer are both correct.",
-              size=14.5, font=SERIF, color=INK, wrap=52) + 0.34
-    y = _text(fig, M, y, "That single component then does four jobs:",
-              size=14.5, font=SERIF, color=INK_SOFT, wrap=52) + 0.20
-    for line in ["the benchmark metric",
-                 "the reward signal for reinforcement learning",
-                 "the filter that verifies synthetic training data",
-                 "the vote at inference time"]:
-        fig.text(_x(M + 0.16), _y(y), "·", fontproperties=MONO, fontsize=13,
+              "Instead: run both queries against the real database and "
+              "compare the rows that come back. Two queries that look "
+              "nothing alike but return the same answer are both correct.",
+              size=13.5, font=SERIF, color=INK, wrap=58) + 0.28
+    y = _text(fig, M, y, "One piece of code, doing four different jobs:",
+              size=14, font=SERIF, color=INK_SOFT, wrap=54) + 0.22
+    jobs = [
+        ("Scoring",
+         "how the model is graded, on databases it has never seen"),
+        ("Training reward",
+         "reward comes from the rows a query returns, not how it looks"),
+        ("Data filter",
+         "generated training data is kept only if it actually works"),
+        ("Answering",
+         "eight queries per question, grouped by the rows they return"),
+    ]
+    for name, detail in jobs:
+        fig.text(_x(M), _y(y), "·", fontproperties=MONO, fontsize=13,
                  color=ACCENT, va="top")
-        y = _text(fig, M + 0.42, y, line, size=14, font=SERIF, color=INK,
-                  wrap=48) + 0.06
+        y = _text(fig, M + 0.30, y - 0.02, name, size=13.5, font=SERIF_B) + 0.01
+        y = _text(fig, M + 0.30, y, detail, size=12, font=SERIF,
+                  color=INK_SOFT, wrap=66) + 0.14
+    _guard(y, "the one decision")
 
 
 def s04_system(fig):
@@ -224,30 +235,40 @@ def s04_system(fig):
               size=27, font=SERIF, wrap=26, leading=1.2)
     y = _rule(fig, y + 0.24)
     stages = [
-        ("Qwen2.5-Coder-1.5B", "the base model"),
-        ("Supervised fine-tuning", "on Spider train, full schemas"),
-        ("GRPO", "reinforcement learning, reward is whether the query returns the right rows"),
-        ("Execution voting", "sample k answers, run them all, take the majority"),
-        ("FastAPI service", "returns SQL, rows, a calibrated confidence and a timing breakdown"),
+        ("Start: Qwen2.5-Coder-1.5B",
+         "an open model from Alibaba, already trained on code. Nothing to do with SQL yet."),
+        ("Teach it the task",
+         "supervised fine-tuning on 7,000 question-and-query pairs: show it the right answer and have it imitate."),
+        ("Reinforcement learning (GRPO)",
+         "Group Relative Policy Optimisation: write several queries per question, run every one against the database, reinforce the ones that returned correct rows."),
+        ("Answer eight times, not once",
+         "at question time it writes eight queries, all eight are run, and the answer is whichever result the majority produced."),
+        ("Serve it over HTTP",
+         "a FastAPI endpoint returning the query, the rows, a confidence level and a timing breakdown."),
     ]
     for name, detail in stages:
-        fig.text(_x(M), _y(y), "▸", fontproperties=MONO, fontsize=11,
+        fig.text(_x(M), _y(y), "▸", fontproperties=MONO, fontsize=10.5,
                  color=ACCENT, va="top")
-        y = _text(fig, M + 0.30, y - 0.02, name, size=15, font=SERIF_B) + 0.02
-        y = _text(fig, M + 0.30, y, detail, size=12.5, font=SERIF,
-                  color=INK_SOFT, wrap=54) + 0.20
-    y += 0.20
+        y = _text(fig, M + 0.28, y - 0.02, name, size=13.5, font=SERIF_B) + 0.01
+        y = _text(fig, M + 0.28, y, detail, size=11.8, font=SERIF,
+                  color=INK_SOFT, wrap=68) + 0.12
+    y = _rule(fig, y + 0.14)
+    y = _text(fig, M, y,
+              "All of it on one AWS g5.xlarge: a single NVIDIA A10G with "
+              "24GB of memory, 4 vCPUs, $1.006 an hour.",
+              size=11.8, font=SERIF, color=INK_SOFT, wrap=68) + 0.20
     for i, (big, small) in enumerate([("338", "tests"),
                                       ("11", "gpu-hours measuring"),
                                       ("~$14", "total compute")]):
         col = M + i * (W - 2 * M) / 3
-        fig.text(_x(col), _y(y), big, fontproperties=MONO, fontsize=22,
+        fig.text(_x(col), _y(y), big, fontproperties=MONO, fontsize=20,
                  color=INK, va="top")
-        fig.text(_x(col), _y(y + 0.40), small.upper(), fontproperties=MONO,
-                 fontsize=8, color=INK_FAINT, va="top")
+        fig.text(_x(col), _y(y + 0.38), small.upper(), fontproperties=MONO,
+                 fontsize=7.5, color=INK_FAINT, va="top")
+    _guard(y + 0.55, "what i built")
 
 
-def _chart_slide(eyebrow, title, chart, body, height=3.05):
+def _chart_slide(eyebrow, title, chart, body, height=2.72):
     def render(fig):
         y = _eyebrow(fig, M, eyebrow)
         y = _text(fig, M, y, title, size=25, font=SERIF, wrap=30, leading=1.2)
@@ -265,29 +286,32 @@ def s10_wrong(fig):
               size=28, font=SERIF, wrap=26, leading=1.2)
     y = _rule(fig, y + 0.24)
     items = [
-        ("I reported a p99 latency of 28 seconds.",
-         "It was measured over 100 requests, and a p99 over 100 samples is "
-         "the single slowest request in the sample. Over the full 2,147 it "
-         "is 16 seconds, and the ranking I had built on it does not hold."),
-        ("I wrote that retrieving fewer tables would help.",
-         "It was a guess. I ran it at 5, 10 and 20 tables across two "
-         "retrievers. It does not help. The claim is withdrawn."),
-        ("I carried a 9-point cost for missing tables.",
-         "Measured properly it is 6.7. The other half of that decomposition "
-         "reproduced exactly, which is how I knew which number had drifted."),
+        ("I said one question in a hundred took 28 seconds.",
+         "I had measured that over only 100 questions, so it was simply the "
+         "single slowest one I happened to see. Across all 2,147 it is 16 "
+         "seconds, and what I concluded from 28 was wrong."),
+        ("I said searching for fewer tables would help.",
+         "A guess, written down as though it were a result. Run properly at "
+         "5, 10 and 20 tables across two search methods, it does not help. "
+         "Withdrawn."),
+        ("I said missing tables cost 9 points of accuracy.",
+         "Table search fails two ways: it misses one the answer needs, or it "
+         "finds them and buries them among irrelevant ones. Missing costs "
+         "6.7 points, not 9. Burying costs 16.5. I had it backwards."),
     ]
     for i, (claim, fix) in enumerate(items, start=1):
         fig.text(_x(M), _y(y), f"0{i}", fontproperties=MONO, fontsize=13,
                  color=DEFECT, va="top")
-        y = _text(fig, M + 0.46, y - 0.02, claim, size=14.5, font=SERIF_B,
-                  wrap=44) + 0.04
-        y = _text(fig, M + 0.46, y, fix, size=12.5, font=SERIF,
-                  color=INK_SOFT, wrap=52) + 0.30
+        y = _text(fig, M + 0.46, y - 0.02, claim, size=14, font=SERIF_B,
+                  wrap=46) + 0.04
+        y = _text(fig, M + 0.46, y, fix, size=12.2, font=SERIF,
+                  color=INK_SOFT, wrap=56) + 0.26
     y = _rule(fig, y + 0.06)
     _guard(_text(fig, M, y,
-                 "All three sit in the write-up beside the corrected "
-                 "versions. The wrong ones are the more useful half.",
-                 size=13.5, font=SERIF, color=INK, wrap=56), "three wrong")
+                 "All three are still in the write-up, beside the corrected "
+                 "versions. Anyone can report a benchmark number. The ones "
+                 "you had to withdraw are harder to fake.",
+                 size=13, font=SERIF, color=INK, wrap=60), "three wrong")
 
 
 def s11_next(fig):
@@ -296,16 +320,19 @@ def s11_next(fig):
               size=28, font=SERIF, wrap=26, leading=1.2)
     y = _rule(fig, y + 0.24)
     items = [
-        ("A learned verifier.",
-         "Majority voting leaves 4.8 points on the table at k=16, and two "
-         "hand-built tiebreak rules recovered +0.1 and −0.1. This needs a "
-         "model, not a heuristic."),
-        ("Training on cluttered schemas.",
-         "Distraction costs 2.5x what missing tables do, so the fix belongs "
-         "in training rather than in the retriever."),
-        ("vLLM in the serving path.",
-         "A 2.7 second median is not fast. Nothing about the current stack "
-         "is optimised for inference."),
+        ("Train something to pick the answer.",
+         "Taking the majority vote throws away 4.8 points of accuracy the "
+         "model already produced. I wrote two hand-made rules to choose "
+         "better; one gained 0.1 points and the other lost 0.1. Choosing "
+         "well needs a trained model, not a rule of thumb."),
+        ("Train it on messy databases, not clean ones.",
+         "It learned on tidy, correct database descriptions and is then asked "
+         "to work with cluttered ones full of irrelevant tables. Teaching it "
+         "to ignore the clutter is a training problem, not a search problem."),
+        ("Make it faster to serve.",
+         "2.7 seconds for a typical question is slow. Nothing in the current "
+         "serving stack is optimised for inference speed, and there is an "
+         "obvious library to swap in."),
     ]
     for name, detail in items:
         fig.text(_x(M), _y(y), "▸", fontproperties=MONO, fontsize=11,
@@ -330,50 +357,61 @@ SLIDES = [
     _chart_slide(
         "the result", "71.5%, level with a model five times larger",
         "vote-curve.png",
-        ["Sample eight answers, run all eight, reply with whatever the "
-         "majority returned. 68.1% to 71.5%. A 7B scores 71.2%. Measured "
-         "cost: 2.1x median latency, not 8x.",
-         "But it saturates: +1.2, +1.4, +1.1, then +0.4 per doubling. The "
-         "orange ceiling keeps climbing, so the gap between what the model "
-         "produces and what it picks widens to 4.8 points. The bottleneck "
-         "is no longer generation. It is selection."]),
+        ["Blue is what the system actually replies with: ask it k times, run "
+         "every query, answer with whichever result won the vote. Orange is "
+         "whether ANY of those tries was right, which you only know by "
+         "checking the answer key afterwards. Orange is the ceiling.",
+         "Blue flattens: 8 tries to 16 buys 0.4 points. Orange keeps rising. "
+         "At 16 tries the model writes a correct query for 77% of questions "
+         "and picks it only 72% of the time. That 5-point gap is right "
+         "answers it produced and threw away."]),
     _chart_slide(
         "a signal you get for free", "The model already knows when it is wrong",
         "calibration.png",
-        ["When all sixteen samples agree it is right 86% of the time, over "
-         "65% of questions. When they disagree it is close to a coin flip.",
-         "No extra training, no extra infrastructure. You are already "
-         "generating the samples in order to vote. The ragged middle is "
-         "honest: those buckets hold 23 to 84 questions each, so they are "
-         "noise, not signal."]),
+        ["Each bar is one level of self-agreement. Far right is every sample "
+         "agreeing with every other. Far left is none of them even producing "
+         "a query that runs. Bar height is how often that group turned out to "
+         "be correct.",
+         "When all sixteen agree it is right 86% of the time, covering 65% of "
+         "questions. When they disagree it is near a coin flip. The middle "
+         "bars jump around because the number under each is how many "
+         "questions landed there, 20 to 80, far too few to read a trend into. "
+         "Only the right-hand bar has enough behind it to trust."]),
     _chart_slide(
         "the finding i almost missed", "A flat number hiding two opposing forces",
         "retrieval-tradeoff.png",
-        ["Hand the model a 300-table pool instead of the right database and "
-         "it must retrieve first. Accuracy read 44.3%, 45.2%, 44.8% across a "
-         "fourfold change in k. Flat enough to conclude k does not matter.",
-         "Split by whether retrieval found every needed table: coverage "
-         "climbs while accuracy on those same questions falls, in both "
-         "retrievers. They cancel. Irrelevant context costs 2.5x what "
-         "missing context does."]),
+        ["Real databases have hundreds of tables, so something must search "
+         "for the relevant ones first. I gave it a 300-table haystack. "
+         "Accuracy came back 44.3%, 45.2%, 44.8% when the search returned 5, "
+         "10, then 20 tables. Flat enough to conclude it does not matter.",
+         "It does. Blue is how often the search found every table the answer "
+         "needed: it rises, because searching wider finds more. Orange is how "
+         "often the model then got those same questions right: it falls, "
+         "because the extra tables are distractions. They cancel."]),
     _chart_slide(
         "what it costs", "Accuracy reported next to its price",
         "latency-percentiles.png",
-        ["Almost nobody publishes latency beside accuracy, which is how a "
-         "technique that looks free in a benchmark becomes expensive in "
-         "production.",
-         "Retry's median is indistinguishable from greedy: most requests "
-         "never enter the loop. All of its cost sits in the tail, and its "
-         "mean hides that from both ends at once."]),
+        ["p50 is how long a typical question takes. p99 is the slowest one in "
+         "every hundred. Retry here means: when a query hits a database "
+         "error, show the model the error and let it try again.",
+         "Retry's typical question is as fast as not retrying at all, because "
+         "most queries work first time and never enter the loop. But the ones "
+         "that do retry are slow, and one question in a hundred takes 16 "
+         "seconds. The average across everything is 3.8 seconds, which "
+         "describes neither the fast case nor the slow one. Averages are how "
+         "a technique looks free in a benchmark and hurts in production."]),
     _chart_slide(
         "what is still broken", "The largest failure is not reasoning",
         "taxonomy-grpo-coder15.png",
-        ["Every failure on the held-out split, by kind. Orange never ran. "
-         "Blue ran cleanly and returned the wrong rows.",
-         "The biggest single one is the model inventing a column name that "
-         "does not exist: 8.1%, larger than any wrong-answer category, after "
-         "RL already cut it by 29%. The next fix belongs in how the schema is "
-         "shown, not in how the model reasons."]),
+        ["Every question it got wrong, sorted by what went wrong. Orange "
+         "means the query crashed against the database. Blue means the query "
+         "ran perfectly and handed back the wrong rows.",
+         "The single biggest failure is the model inventing a column name "
+         "that does not exist in the database: 174 questions, 8.1% of the "
+         "test set, bigger than any category of wrong answer. That is already "
+         "29% better than before reinforcement learning. So the next thing to "
+         "fix is how the database structure is described to the model, not "
+         "how the model reasons about it."]),
     s10_wrong,
     s11_next,
 ]
